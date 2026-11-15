@@ -12,11 +12,19 @@ enum UserRole {
   RECIPIENT
   ADMIN
 }
+enum FollowUpStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+}
+
 enum SessionStatus {
   ACTIVE
   COMPLETED
   CANCELLED
 }
+
 enum RecordingStatus {
   UPLOADED
   TRANSCRIBING
@@ -25,98 +33,144 @@ enum RecordingStatus {
   SAVED
   FAILED
 }
+
 enum MemoryVisibility {
   PRIVATE
   FAMILY
 }
 
+enum AnswerType {
+  MAIN
+  PERMANENT_FOLLOW_UP
+  AI_FOLLOW_UP
+}
+
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String?
-  role         UserRole @default(RECIPIENT)
-  preferredLanguage String @default("en")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  sessions     StorySession[]
-  memories     Memory[]
-  giftsCreated Gift[] @relation("GiftPurchaser")
-  giftsReceived Gift[] @relation("GiftRecipient")
+  id                String   @id @default(cuid())
+  name              String
+  email             String   @unique
+  passwordHash      String?
+  role              UserRole @default(RECIPIENT)
+  preferredLanguage String   @default("en")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  sessions      StorySession[]
+  memories      Memory[]
+  giftsCreated  Gift[]         @relation("GiftPurchaser")
+  giftsReceived Gift[]         @relation("GiftRecipient")
 }
 
 model Gift {
-  id          String @id @default(cuid())
-  code        String @unique
+  id          String    @id @default(cuid())
+  code        String    @unique
   purchaserId String
   recipientId String?
   activatedAt DateTime?
-  createdAt   DateTime @default(now())
-  purchaser   User @relation("GiftPurchaser", fields: [purchaserId], references: [id])
-  recipient   User? @relation("GiftRecipient", fields: [recipientId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  purchaser User  @relation("GiftPurchaser", fields: [purchaserId], references: [id])
+  recipient User? @relation("GiftRecipient", fields: [recipientId], references: [id])
 }
 
 model Category {
-  id        String @id
-  sortOrder Int @default(0)
+  id        String     @id
+  sortOrder Int        @default(0)
   questions Question[]
 }
 
 model Question {
-  id          String @id @default(cuid())
-  categoryId  String
-  language    String
-  text        String
-  sortOrder   Int @default(0)
-  isActive    Boolean @default(true)
-  category    Category @relation(fields: [categoryId], references: [id])
-  answers     StorySession[]
+  id                    String  @id @default(cuid())
+  categoryId            String
+  language              String
+  text                  String
+  permanentFollowUpText String  @default("")
+  sortOrder             Int     @default(0)
+  isActive              Boolean @default(true)
+
+  category     Category       @relation(fields: [categoryId], references: [id])
+  answers      StorySession[]
+  storyPrompts StoryPrompt[]
+
   @@unique([categoryId, language, sortOrder])
   @@index([categoryId, language, isActive])
 }
 
 model StorySession {
-  id           String @id @default(cuid())
-  userId       String
-  questionId   String?
-  language     String
-  status       SessionStatus @default(ACTIVE)
-  startedAt    DateTime @default(now())
-  completedAt  DateTime?
-  user         User @relation(fields: [userId], references: [id])
-  question     Question? @relation(fields: [questionId], references: [id])
-  recordings   Recording[]
+  id          String        @id @default(cuid())
+  userId      String
+  questionId  String?
+  language    String
+  status      SessionStatus @default(ACTIVE)
+  startedAt   DateTime      @default(now())
+  completedAt DateTime?
+
+  user       User          @relation(fields: [userId], references: [id])
+  question   Question?     @relation(fields: [questionId], references: [id])
+  recordings Recording[]
+  prompts    StoryPrompt[]
+}
+
+model StoryPrompt {
+  id                    String   @id @default(cuid())
+  sessionId             String
+  questionId            String
+  permanentFollowUpText String
+  aiFollowUpText        String?
+  sortOrder             Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  aiFollowUpStatus FollowUpStatus @default(PENDING)
+
+  session    StorySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question   Question     @relation(fields: [questionId], references: [id])
+  recordings Recording[]
+
+  @@unique([sessionId, questionId])
+  @@index([sessionId, sortOrder])
 }
 
 model Recording {
-  id             String @id @default(cuid())
-  sessionId      String
+  id            String     @id @default(cuid())
+  sessionId     String
+  storyPromptId String?
+  answerType    AnswerType @default(MAIN)
+
   originalAudioUrl String
   originalAudioKey String?
-  mimeType       String
-  durationSeconds Int?
-  status         RecordingStatus @default(UPLOADED)
+  mimeType         String
+  durationSeconds  Int?
+  status           RecordingStatus @default(UPLOADED)
+
   originalTranscript String?
   englishTranslation String?
-  detectedLanguage String?
-  processingError String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  session        StorySession @relation(fields: [sessionId], references: [id])
-  memory         Memory?
+  detectedLanguage   String?
+  processingError    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  session     StorySession @relation(fields: [sessionId], references: [id])
+  storyPrompt StoryPrompt? @relation(fields: [storyPromptId], references: [id])
+  memory      Memory?
+
+  @@index([sessionId, createdAt])
+  @@index([storyPromptId, answerType])
 }
 
 model Memory {
-  id          String @id @default(cuid())
+  id          String           @id @default(cuid())
   userId      String
-  recordingId String @unique
+  recordingId String           @unique
   title       String
   transcript  String
   translation String?
   visibility  MemoryVisibility @default(PRIVATE)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User @relation(fields: [userId], references: [id])
-  recording   Recording @relation(fields: [recordingId], references: [id])
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id])
+  recording Recording @relation(fields: [recordingId], references: [id])
+
   @@index([userId, createdAt])
 }

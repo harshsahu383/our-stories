@@ -9,7 +9,6 @@ import {
     StatusBar,
     Alert,
     ActivityIndicator,
-    Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -23,15 +22,18 @@ import {
     useAudioPlayerStatus,
 } from "expo-audio";
 import * as Speech from "expo-speech";
+
 import { colors } from "../theme/colors";
 import {
     startDemoSession,
     getQuestions,
     createStorySession,
+    createStoryPrompt,
+    getStoryPrompt,
     uploadRecording,
-    saveMemory,
-    getMemories,
     type StoryQuestion,
+    type AnswerType,
+    type StoryPrompt,
 } from "../services/api";
 
 const prompts = [
@@ -42,68 +44,345 @@ const prompts = [
 
 const localizedCopy = {
     en: {
-        eyebrow: "NO STORY GOES UNTOLD", heading: "Your stories.", headingAccent: "In your voice.", description: "No right place to begin. Just you.",
-        questionEyebrow: "A QUESTION TO BEGIN", loading: "Loading questions…", preparing: "Getting ready…", listening: "Listening to you", letsTalk: "Let's talk",
-        recordingReady: "Your voice recording is ready", recordingStatus: "RECORDING", pausedStatus: "PAUSED", tapMic: "Tap the microphone to begin", playback: "Your recording", localSaved: "Saved on this device",
-        nudge: "A little nudge, if you'd like", memories: "My memories", keepMoment: "Keep this moment", yourStory: "YOUR STORY", translation: "ENGLISH TRANSLATION",
-        continue: "A QUESTION TO CONTINUE", keep: "Keep my memory", saved: "Memory saved ✓", footer: "PRIVATE · YOUR VOICE · YOUR MEMORIES",
-        love: "Love", fears: "Fears", little: "Little things", pause: "Pause", resume: "Resume", stop: "Finish recording", restart: "Record again", preview: "Preview", done: "Done · Next question", cancel: "Cancel", saving: "Saving memory…", listenQuestion: "Listen to question", stopQuestion: "Stop question"
+        eyebrow: "NO STORY GOES UNTOLD",
+        heading: "Your stories.",
+        headingAccent: "In your voice.",
+        description: "No right place to begin. Just you.",
+        questionEyebrow: "A QUESTION TO BEGIN",
+        loading: "Loading questions…",
+        preparing: "Getting ready…",
+        listening: "Listening to you",
+        letsTalk: "Let's talk",
+        recordingReady: "Your voice recording is ready",
+        recordingStatus: "RECORDING",
+        pausedStatus: "PAUSED",
+        tapMic: "Tap the microphone to begin",
+        playback: "Your recording",
+        nudge: "A little nudge, if you'd like",
+        memories: "My memories",
+        footer: "PRIVATE · YOUR VOICE · YOUR MEMORIES",
+        love: "Love",
+        fears: "Fears",
+        little: "Little things",
+        pause: "Pause",
+        resume: "Resume",
+        stop: "Finish recording",
+        restart: "Record again",
+        preview: "Preview",
+        done: "Done · Continue",
+        cancel: "Cancel",
+        listenQuestion: "Listen to question",
+        stopQuestion: "Stop question",
+        main: "MAIN QUESTION",
+        permanent: "FOLLOW-UP QUESTION",
+        ai: "A PERSONAL FOLLOW-UP",
+        waiting: "Preparing your next question…",
+        upload: "Uploading your recording…",
     },
     hi: {
-        eyebrow: "हर कहानी अनमोल है", heading: "आपकी कहानियाँ।", headingAccent: "आपकी आवाज़ में।", description: "शुरुआत करने का कोई सही तरीका नहीं। बस आप।",
-        questionEyebrow: "शुरुआत के लिए एक सवाल", loading: "सवाल लोड हो रहे हैं…", preparing: "तैयारी हो रही है…", listening: "हम सुन रहे हैं", letsTalk: "बात शुरू करें",
-        recordingReady: "आपकी आवाज़ की रिकॉर्डिंग तैयार है", recordingStatus: "रिकॉर्डिंग", pausedStatus: "रुकी हुई", tapMic: "शुरू करने के लिए माइक्रोफ़ोन दबाएँ", playback: "आपकी रिकॉर्डिंग", localSaved: "इस डिवाइस में सुरक्षित",
-        nudge: "अगर चाहें तो एक छोटा सुझाव", memories: "मेरी यादें", keepMoment: "इस पल को सहेजें", yourStory: "आपकी कहानी", translation: "अंग्रेज़ी अनुवाद",
-        continue: "आगे बढ़ने के लिए एक सवाल", keep: "मेरी याद सहेजें", saved: "याद सहेज ली ✓", footer: "निजी · आपकी आवाज़ · आपकी यादें",
-        love: "प्यार", fears: "डर", little: "छोटी बातें", pause: "रोकें", resume: "फिर शुरू करें", stop: "रिकॉर्डिंग पूरी करें", restart: "दोबारा रिकॉर्ड करें", preview: "सुनें", done: "हो गया · अगला सवाल", cancel: "रद्द करें", saving: "याद सहेजी जा रही है…", listenQuestion: "सवाल सुनें", stopQuestion: "सवाल रोकें"
+        eyebrow: "हर कहानी अनमोल है",
+        heading: "आपकी कहानियाँ।",
+        headingAccent: "आपकी आवाज़ में।",
+        description: "शुरुआत करने का कोई सही तरीका नहीं। बस आप।",
+        questionEyebrow: "शुरुआत के लिए एक सवाल",
+        loading: "सवाल लोड हो रहे हैं…",
+        preparing: "तैयारी हो रही है…",
+        listening: "हम सुन रहे हैं",
+        letsTalk: "बात शुरू करें",
+        recordingReady: "आपकी रिकॉर्डिंग तैयार है",
+        recordingStatus: "रिकॉर्डिंग",
+        pausedStatus: "रुकी हुई",
+        tapMic: "शुरू करने के लिए माइक्रोफ़ोन दबाएँ",
+        playback: "आपकी रिकॉर्डिंग",
+        nudge: "अगर चाहें तो एक छोटा सुझाव",
+        memories: "मेरी यादें",
+        footer: "निजी · आपकी आवाज़ · आपकी यादें",
+        love: "प्यार",
+        fears: "डर",
+        little: "छोटी बातें",
+        pause: "रोकें",
+        resume: "फिर शुरू करें",
+        stop: "रिकॉर्डिंग पूरी करें",
+        restart: "दोबारा रिकॉर्ड करें",
+        preview: "सुनें",
+        done: "हो गया · आगे बढ़ें",
+        cancel: "रद्द करें",
+        listenQuestion: "सवाल सुनें",
+        stopQuestion: "सवाल रोकें",
+        main: "मुख्य सवाल",
+        permanent: "आगे का सवाल",
+        ai: "आपके लिए एक खास सवाल",
+        waiting: "अगला सवाल तैयार हो रहा है…",
+        upload: "रिकॉर्डिंग अपलोड हो रही है…",
     },
     gu: {
-        eyebrow: "દરેક વાર્તા અનમોલ છે", heading: "તમારી વાર્તાઓ.", headingAccent: "તમારા અવાજમાં.", description: "શરૂઆત કરવાની કોઈ સાચી રીત નથી. બસ તમે.",
-        questionEyebrow: "શરૂઆત માટે એક પ્રશ્ન", loading: "પ્રશ્નો લોડ થઈ રહ્યા છે…", preparing: "તૈયારી થઈ રહી છે…", listening: "અમે સાંભળી રહ્યા છીએ", letsTalk: "ચાલો વાત કરીએ",
-        recordingReady: "તમારું વૉઇસ રેકોર્ડિંગ તૈયાર છે", recordingStatus: "રેકોર્ડિંગ", pausedStatus: "થોભેલું", tapMic: "શરૂ કરવા માઇક્રોફોન દબાવો", playback: "તમારું રેકોર્ડિંગ", localSaved: "આ ડિવાઇસમાં સાચવ્યું",
-        nudge: "ઇચ્છા હોય તો એક નાનો સંકેત", memories: "મારી યાદો", keepMoment: "આ ક્ષણ સાચવો", yourStory: "તમારી વાર્તા", translation: "અંગ્રેજી અનુવાદ",
-        continue: "આગળ વધવા માટે એક પ્રશ્ન", keep: "મારી યાદ સાચવો", saved: "યાદ સાચવી ✓", footer: "ખાનગી · તમારો અવાજ · તમારી યાદો",
-        love: "પ્રેમ", fears: "ડર", little: "નાની વાતો", pause: "થોભો", resume: "ફરી શરૂ કરો", stop: "રેકોર્ડિંગ પૂર્ણ કરો", restart: "ફરી રેકોર્ડ કરો", preview: "સાંભળો", done: "થઈ ગયું · આગળનો પ્રશ્ન", cancel: "રદ કરો", saving: "યાદ સાચવી રહ્યા છીએ…", listenQuestion: "પ્રશ્ન સાંભળો", stopQuestion: "પ્રશ્ન બંધ કરો"
-    }
+        eyebrow: "દરેક વાર્તા અનમોલ છે",
+        heading: "તમારી વાર્તાઓ.",
+        headingAccent: "તમારા અવાજમાં.",
+        description: "શરૂઆત કરવાની કોઈ સાચી રીત નથી. બસ તમે.",
+        questionEyebrow: "શરૂઆત માટે એક પ્રશ્ન",
+        loading: "પ્રશ્નો લોડ થઈ રહ્યા છે…",
+        preparing: "તૈયારી થઈ રહી છે…",
+        listening: "અમે સાંભળી રહ્યા છીએ",
+        letsTalk: "ચાલો વાત કરીએ",
+        recordingReady: "તમારું રેકોર્ડિંગ તૈયાર છે",
+        recordingStatus: "રેકોર્ડિંગ",
+        pausedStatus: "થોભેલું",
+        tapMic: "શરૂ કરવા માઇક્રોફોન દબાવો",
+        playback: "તમારું રેકોર્ડિંગ",
+        nudge: "ઇચ્છા હોય તો એક નાનો સંકેત",
+        memories: "મારી યાદો",
+        footer: "ખાનગી · તમારો અવાજ · તમારી યાદો",
+        love: "પ્રેમ",
+        fears: "ડર",
+        little: "નાની વાતો",
+        pause: "થોભો",
+        resume: "ફરી શરૂ કરો",
+        stop: "રેકોર્ડિંગ પૂર્ણ કરો",
+        restart: "ફરી રેકોર્ડ કરો",
+        preview: "સાંભળો",
+        done: "થઈ ગયું · આગળ વધો",
+        cancel: "રદ કરો",
+        listenQuestion: "પ્રશ્ન સાંભળો",
+        stopQuestion: "પ્રશ્ન બંધ કરો",
+        main: "મુખ્ય પ્રશ્ન",
+        permanent: "આગળનો પ્રશ્ન",
+        ai: "તમારા માટે ખાસ પ્રશ્ન",
+        waiting: "આગળનો પ્રશ્ન તૈયાર થઈ રહ્યો છે…",
+        upload: "રેકોર્ડિંગ અપલોડ થઈ રહ્યું છે…",
+    },
 } as const;
 
 export default function DashboardScreen() {
     const [language, setLanguage] = useState<"English" | "ગુજરાતી" | "हिन्दी">("English");
     const [selectedPrompt, setSelectedPrompt] = useState("love");
-    const [recordingUri, setRecordingUri] = useState<string | null>(null);
-    const [isPreparing, setIsPreparing] = useState(false);
-    const [isPaused, setIsPaused] = useState(false);
-    const [isSavingMemory, setIsSavingMemory] = useState(false);
-    const [isSaved, setIsSaved] = useState(false);
+
     const [questions, setQuestions] = useState<StoryQuestion[]>([]);
     const [activeQuestion, setActiveQuestion] = useState<StoryQuestion | null>(null);
+
+    const [answerType, setAnswerType] = useState<AnswerType>("MAIN");
+    const [permanentFollowUpText, setPermanentFollowUpText] = useState("");
+    const [aiFollowUpText, setAiFollowUpText] = useState("");
+    const [isWaitingForAI, setIsWaitingForAI] = useState(false);
+
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [storyPromptId, setStoryPromptId] = useState<string | null>(null);
+
+    const [recordingUri, setRecordingUri] = useState<string | null>(null);
     const [recordingId, setRecordingId] = useState<string | null>(null);
-    const [transcript, setTranscript] = useState("");
-    const [translation, setTranslation] = useState("");
-    const [followUpQuestion, setFollowUpQuestion] = useState("");
+    const [isPreparing, setIsPreparing] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [isMemorySaved, setIsMemorySaved] = useState(false);
-    const [apiReady, setApiReady] = useState(false);
-    const [apiError, setApiError] = useState<string | null>(null);
+    const [isPaused, setIsPaused] = useState(false);
+    const [isSaved, setIsSaved] = useState(false);
+
     const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
+    const [isQuestionSpeaking, setIsQuestionSpeaking] = useState(false);
+    const [apiError, setApiError] = useState<string | null>(null);
     const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
-    // Keep the session promise outside render state so recording never waits on the API.
+
     const sessionIdRef = useRef<string | null>(null);
     const sessionPromiseRef = useRef<Promise<string> | null>(null);
 
-    const languageCode = language === "ગુજરાતી" ? "gu" : language === "हिन्दी" ? "hi" : "en";
+    const storyPromptIdRef = useRef<string | null>(null);
+    const promptQuestionIdRef = useRef<string | null>(null);
+    const promptPromiseRef = useRef<Promise<StoryPrompt> | null>(null);
+
+    const languageCode =
+        language === "ગુજરાતી" ? "gu" :
+            language === "हिन्दी" ? "hi" : "en";
+
+    const speechLocale =
+        languageCode === "hi" ? "hi-IN" :
+            languageCode === "gu" ? "gu-IN" : "en-IN";
+
     const copy = localizedCopy[languageCode];
-    const speechLocale = languageCode === "hi" ? "hi-IN" : languageCode === "gu" ? "gu-IN" : "en-IN";
-    const [isQuestionSpeaking, setIsQuestionSpeaking] = useState(false);
+
+    const categoryId =
+        selectedPrompt === "love" ? "love" :
+            selectedPrompt === "fears" ? "life-lessons" :
+                "little-things";
+
+    const displayedQuestion =
+        answerType === "MAIN"
+            ? activeQuestion?.text || ""
+            : answerType === "PERMANENT_FOLLOW_UP"
+                ? permanentFollowUpText
+                : aiFollowUpText;
+
+    const stepLabel =
+        answerType === "MAIN" ? copy.main :
+            answerType === "PERMANENT_FOLLOW_UP" ? copy.permanent :
+                copy.ai;
+
+    // --------------------------------------------------
+    // SESSION AND PROMPT MANAGEMENT
+    // --------------------------------------------------
+
+    const ensureStorySession = async (): Promise<string> => {
+        if (sessionIdRef.current) {
+            return sessionIdRef.current;
+        }
+
+        if (sessionPromiseRef.current) {
+            return sessionPromiseRef.current;
+        }
+
+        const pending = (async () => {
+            await startDemoSession(languageCode);
+
+            const result = await createStorySession(undefined, languageCode);
+            const id = result.session.id;
+
+            sessionIdRef.current = id;
+            setSessionId(id);
+
+            return id;
+        })();
+
+        sessionPromiseRef.current = pending;
+
+        try {
+            return await pending;
+        } finally {
+            if (sessionPromiseRef.current === pending) {
+                sessionPromiseRef.current = null;
+            }
+        }
+    };
+
+    const ensureStoryPrompt = async (
+        question: StoryQuestion
+    ): Promise<StoryPrompt> => {
+        if (
+            storyPromptIdRef.current &&
+            promptQuestionIdRef.current === question.id
+        ) {
+            const existing = await getStoryPrompt(
+                sessionIdRef.current!,
+                storyPromptIdRef.current
+            );
+
+            return existing.storyPrompt;
+        }
+
+        if (
+            promptPromiseRef.current &&
+            promptQuestionIdRef.current === question.id
+        ) {
+            return promptPromiseRef.current;
+        }
+
+        const pending = (async () => {
+            const activeSessionId = await ensureStorySession();
+
+            const result = await createStoryPrompt(
+                activeSessionId,
+                question.id
+            );
+
+            const prompt = result.storyPrompt;
+
+            storyPromptIdRef.current = prompt.id;
+            promptQuestionIdRef.current = question.id;
+
+            setStoryPromptId(prompt.id);
+            setPermanentFollowUpText(prompt.permanentFollowUpText || "");
+            setAiFollowUpText("");
+
+            return prompt;
+        })();
+
+        promptQuestionIdRef.current = question.id;
+        promptPromiseRef.current = pending;
+
+        try {
+            return await pending;
+        } finally {
+            if (promptPromiseRef.current === pending) {
+                promptPromiseRef.current = null;
+            }
+        }
+    };
+
+    // --------------------------------------------------
+    // LOAD QUESTIONS
+    // --------------------------------------------------
+
+    useEffect(() => {
+        let active = true;
+
+        const load = async () => {
+            setIsLoadingQuestions(true);
+            setApiError(null);
+
+            try {
+                await startDemoSession(languageCode);
+
+                const result = await getQuestions(languageCode);
+
+                if (!active) return;
+
+                setQuestions(result.questions);
+
+                const firstQuestion = result.questions.find(
+                    question => question.categoryId === categoryId
+                );
+
+                setActiveQuestion(firstQuestion || result.questions[0] || null);
+
+                // A language change starts a new session.
+                sessionIdRef.current = null;
+                sessionPromiseRef.current = null;
+                storyPromptIdRef.current = null;
+                promptQuestionIdRef.current = null;
+                promptPromiseRef.current = null;
+
+                setSessionId(null);
+                setStoryPromptId(null);
+                setAnswerType("MAIN");
+                setPermanentFollowUpText("");
+                setAiFollowUpText("");
+                setRecordingUri(null);
+                setRecordingId(null);
+                setIsSaved(false);
+            } catch (error) {
+                if (active) {
+                    setApiError(
+                        error instanceof Error
+                            ? error.message
+                            : "Could not load questions."
+                    );
+                }
+            } finally {
+                if (active) setIsLoadingQuestions(false);
+            }
+        };
+
+        void load();
+
+        return () => {
+            active = false;
+        };
+    }, [languageCode]);
+
+    // --------------------------------------------------
+    // QUESTION DISPLAY AND SPEECH
+    // --------------------------------------------------
+
+    const stopQuestionSpeech = () => {
+        void Speech.stop();
+        setIsQuestionSpeaking(false);
+    };
 
     const speakQuestion = () => {
-        if (!activeQuestion?.text) return;
-        void Speech.stop();
-        Speech.speak(activeQuestion.text, {
+        if (!displayedQuestion) return;
+
+        stopQuestionSpeech();
+
+        Speech.speak(displayedQuestion, {
             language: speechLocale,
             rate: 0.88,
-            pitch: 1.0,
+            pitch: 1,
             onStart: () => setIsQuestionSpeaking(true),
             onDone: () => setIsQuestionSpeaking(false),
             onStopped: () => setIsQuestionSpeaking(false),
@@ -117,68 +396,32 @@ export default function DashboardScreen() {
         });
     };
 
-    const stopQuestionSpeech = () => {
-        void Speech.stop();
-        setIsQuestionSpeaking(false);
-    };
-    const categoryId = selectedPrompt === "love" ? "love" : selectedPrompt === "fears" ? "life-lessons" : "little-things";
-
     useEffect(() => {
-        let active = true;
-        (async () => {
-            setIsLoadingQuestions(true);
-            setApiError(null);
-            setActiveQuestion(null);
-            try {
-                // Refresh the development session whenever the selected language changes,
-                // then load questions in that language from the backend.
-                await startDemoSession(languageCode);
-                const result = await getQuestions(languageCode);
-                if (!active) return;
-                setQuestions(result.questions);
-                const matchingQuestion = result.questions.find((question) => question.categoryId === categoryId);
-                setActiveQuestion(matchingQuestion || result.questions[0] || null);
-                setApiReady(result.questions.length > 0);
-                if (!result.questions.length) {
-                    setApiError(`No ${language} questions were found. In the API terminal, run: npm run prisma:seed`);
-                }
-            } catch (error) {
-                if (active) {
-                    setApiReady(false);
-                    setApiError(error instanceof Error ? error.message : "Could not connect to the server.");
-                }
-            } finally {
-                if (active) setIsLoadingQuestions(false);
-            }
-        })();
-        return () => { active = false; };
-    }, [languageCode, categoryId]);
+        if (!displayedQuestion) return;
 
-    useEffect(() => {
-        const question = questions.find((item) => item.categoryId === categoryId);
-        if (question) setActiveQuestion(question);
-    }, [categoryId, questions]);
+        stopQuestionSpeech();
 
-    useEffect(() => {
-        if (!activeQuestion?.text) return;
-        void Speech.stop();
-        setIsQuestionSpeaking(false);
         const timer = setTimeout(() => {
-            Speech.speak(activeQuestion.text, {
+            Speech.speak(displayedQuestion, {
                 language: speechLocale,
                 rate: 0.88,
-                pitch: 1.0,
+                pitch: 1,
                 onStart: () => setIsQuestionSpeaking(true),
                 onDone: () => setIsQuestionSpeaking(false),
                 onStopped: () => setIsQuestionSpeaking(false),
                 onError: () => setIsQuestionSpeaking(false),
             });
         }, 350);
+
         return () => {
             clearTimeout(timer);
             void Speech.stop();
         };
-    }, [activeQuestion?.id, languageCode]);
+    }, [displayedQuestion, speechLocale]);
+
+    // --------------------------------------------------
+    // AUDIO SETUP
+    // --------------------------------------------------
 
     const recorder = useAudioRecorder({
         ...RecordingPresets.HIGH_QUALITY,
@@ -197,56 +440,41 @@ export default function DashboardScreen() {
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
 
-        return `${String(minutes).padStart(2, "0")}:${String(
-            seconds
-        ).padStart(2, "0")}`;
+        return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
     };
 
-    const ensureStorySession = async (): Promise<string> => {
-        if (sessionIdRef.current) return sessionIdRef.current;
-        if (sessionPromiseRef.current) return sessionPromiseRef.current;
-
-        const pending = (async () => {
-            // Refresh the short-lived development token before creating the session.
-            await startDemoSession(languageCode);
-            const availableQuestions = questions.length
-                ? questions
-                : (await getQuestions(languageCode)).questions;
-            const selectedQuestion =
-                (activeQuestion && availableQuestions.find((question) => question.id === activeQuestion.id)) ||
-                availableQuestions.find((question) => question.categoryId === categoryId) ||
-                availableQuestions[0];
-            if (selectedQuestion) setActiveQuestion(selectedQuestion);
-
-            const session = await createStorySession(selectedQuestion?.id, languageCode);
-            const id = session.session.id;
-            sessionIdRef.current = id;
-            setSessionId(id);
-            return id;
-        })();
-
-        sessionPromiseRef.current = pending;
-        try {
-            return await pending;
-        } finally {
-            if (sessionPromiseRef.current === pending) sessionPromiseRef.current = null;
-        }
+    const clearCurrentRecording = () => {
+        setRecordingUri(null);
+        setRecordingId(null);
+        setIsSaved(false);
+        setIsPaused(false);
     };
+
+    // --------------------------------------------------
+    // START RECORDING
+    // --------------------------------------------------
 
     const startRecording = async () => {
+        if (!activeQuestion || isPreparing || isProcessing || isWaitingForAI) {
+            return;
+        }
+
         stopQuestionSpeech();
+
         try {
             setIsPreparing(true);
             setPermissionMessage(null);
+            setApiError(null);
 
-            // Ask Android/Expo Go for microphone permission directly from the button tap.
             const permission = await requestRecordingPermissionsAsync();
+
             if (!permission.granted) {
                 const message = permission.canAskAgain
-                    ? "Microphone access was not granted. Allow microphone access for Expo Go in Android Settings, then try again."
-                    : "Microphone access is blocked for Expo Go. Open Android Settings → Apps → Expo Go → Permissions → Microphone and choose Allow. Then reopen the app.";
+                    ? "Microphone access was not granted. Allow microphone access for the app in Android Settings."
+                    : "Open Android Settings → Apps → Expo Go → Permissions → Microphone and choose Allow.";
+
                 setPermissionMessage(message);
-                Alert.alert("Microphone permission required", `${message} (Status: ${permission.status})`);
+                Alert.alert("Microphone permission required", message);
                 return;
             }
 
@@ -255,31 +483,26 @@ export default function DashboardScreen() {
                 playsInSilentMode: true,
             });
 
-            setRecordingUri(null);
-            setIsSaved(false);
-            setRecordingId(null);
-            setTranscript("");
-            setTranslation("");
-            setFollowUpQuestion("");
-            setIsMemorySaved(false);
-            setSessionId(null);
-            sessionIdRef.current = null;
-            sessionPromiseRef.current = null;
+            clearCurrentRecording();
 
-            // Start the local recorder BEFORE making any network/API requests.
-            // A backend/session error must never prevent a parent from recording locally.
             await recorder.prepareToRecordAsync();
             recorder.record();
 
-            // Create the server session in the background. If the network is unavailable,
-            // the audio still records and we can retry session creation when Stop is pressed.
-            void ensureStorySession().catch((error) => {
-                console.error("Story session creation failed while recording:", error);
-                setApiError(error instanceof Error ? error.message : "Could not prepare the story session. The audio is still recording on this device.");
+            // Prepare the server prompt while the local recorder is running.
+            void ensureStoryPrompt(activeQuestion).catch(error => {
+                console.error("Prompt preparation error:", error);
+                setApiError(
+                    error instanceof Error
+                        ? error.message
+                        : "Could not prepare the story prompt."
+                );
             });
         } catch (error) {
             console.error("Recording start error:", error);
-            const message = error instanceof Error ? error.message : String(error);
+
+            const message =
+                error instanceof Error ? error.message : String(error);
+
             setPermissionMessage(message);
             Alert.alert("Couldn't start recording", message);
         } finally {
@@ -287,18 +510,22 @@ export default function DashboardScreen() {
         }
     };
 
+    // --------------------------------------------------
+    // STOP AND UPLOAD RECORDING
+    // --------------------------------------------------
+
     const stopRecording = async () => {
+        if (isProcessing) return;
+
         try {
+            setIsProcessing(true);
+
             await recorder.stop();
 
             const uri = recorder.uri;
 
             if (!uri) {
-                Alert.alert(
-                    "Recording unavailable",
-                    "We couldn't find the saved audio file. Please try again."
-                );
-                return;
+                throw new Error("The recorded audio file could not be found.");
             }
 
             setRecordingUri(uri);
@@ -310,119 +537,231 @@ export default function DashboardScreen() {
 
             player.replace(uri);
 
-            setIsProcessing(true);
+            if (!activeQuestion) {
+                throw new Error("No active question was found.");
+            }
 
-            // Create or retrieve the session.
-            const activeSessionId =
-                sessionIdRef.current || await ensureStorySession();
+            const prompt = await ensureStoryPrompt(activeQuestion);
+            const activeSessionId = await ensureStorySession();
 
-            // Upload original audio only. No AI processing.
-            const recording = await uploadRecording(activeSessionId, uri);
+            const filename = `recording-${Date.now()}.m4a`;
+
+            const recording = await uploadRecording(
+                activeSessionId,
+                uri,
+                filename,
+                prompt.id,
+                answerType
+            );
 
             setRecordingId(recording.id);
             setIsSaved(true);
 
             Alert.alert(
-                "Recording saved",
-                "Your original voice recording has been saved. You can preview it or continue to the next question."
+                "Recording uploaded",
+                "Your original voice recording has been uploaded. It is now being processed."
             );
         } catch (error) {
             console.error("Recording upload error:", error);
 
             Alert.alert(
                 "Couldn't save your recording",
-                error instanceof Error
-                    ? error.message
-                    : "Please check your internet connection and try again."
+                error instanceof Error ? error.message : "Please try again."
             );
         } finally {
             setIsProcessing(false);
         }
     };
 
+    // --------------------------------------------------
+    // PAUSE AND RESUME
+    // --------------------------------------------------
+
     const handlePauseResume = () => {
         try {
             if (isPaused) {
-                recorder.record(); // record() resumes a paused expo-audio recorder.
+                recorder.record();
                 setIsPaused(false);
             } else if (recorderState.isRecording) {
                 recorder.pause();
                 setIsPaused(true);
             }
         } catch (error) {
-            Alert.alert("Recording control", error instanceof Error ? error.message : "Couldn't change the recording state.");
+            Alert.alert(
+                "Recording control",
+                error instanceof Error
+                    ? error.message
+                    : "Couldn't change the recording state."
+            );
         }
     };
 
-    const handleRetake = () => {
-        Alert.alert(copy.restart, "The current unsaved take will be replaced. Would you like to record again?", [
-            { text: copy.cancel, style: "cancel" },
-            {
-                text: copy.restart,
-                style: "destructive",
-                onPress: () => {
-                    player.pause();
-                    setRecordingUri(null);
-                    setIsSaved(false);
-                    setRecordingId(null);
-                    setTranscript("");
-                    setTranslation("");
-                    setFollowUpQuestion("");
-                    setIsMemorySaved(false);
-                    setIsPaused(false);
-                    setApiError(null);
-                    sessionIdRef.current = null;
-                    sessionPromiseRef.current = null;
-                    setSessionId(null);
-                    void startRecording();
-                }
-            }
-        ]);
-    };
+    // --------------------------------------------------
+    // RETAKE
+    // --------------------------------------------------
 
-    const handleDone = () => {
-        if (!recordingId || isSavingMemory) {
+    const handleRetake = () => {
+        if (recordingId) {
             Alert.alert(
-                "Recording not saved",
-                "Please finish recording and wait until the audio has uploaded."
+                "Recording already uploaded",
+                "This answer has already been uploaded. The current backend does not yet support replacing an uploaded answer."
             );
             return;
         }
 
-        const currentIndex = questions.findIndex(
-            (question) => question.id === activeQuestion?.id
+        Alert.alert(
+            copy.restart,
+            "The current local recording will be replaced. Would you like to record again?",
+            [
+                { text: copy.cancel, style: "cancel" },
+                {
+                    text: copy.restart,
+                    style: "destructive",
+                    onPress: () => {
+                        player.pause();
+                        clearCurrentRecording();
+                        void startRecording();
+                    },
+                },
+            ]
         );
+    };
 
-        const nextQuestion = questions[currentIndex + 1] || null;
+    // --------------------------------------------------
+    // WAIT FOR AI FOLLOW-UP
+    // --------------------------------------------------
 
-        player.pause();
+    const waitForAIFollowUp = async (): Promise<string> => {
+        const activeSessionId = sessionIdRef.current;
+        const activePromptId = storyPromptIdRef.current;
 
-        setRecordingUri(null);
-        setRecordingId(null);
-        setIsSaved(false);
-        setIsPaused(false);
-        setTranscript("");
-        setTranslation("");
-        setFollowUpQuestion("");
-        setIsMemorySaved(false);
+        if (!activeSessionId || !activePromptId) {
+            throw new Error("The current story prompt could not be found.");
+        }
 
-        // Each question gets its own session.
-        setSessionId(null);
-        sessionIdRef.current = null;
-        sessionPromiseRef.current = null;
+        setIsWaitingForAI(true);
 
-        if (nextQuestion) {
-            setActiveQuestion(nextQuestion);
-            setApiError(null);
-        } else {
-            Alert.alert(
-                "All questions completed",
-                "You've completed all the available questions in this category. You can choose another category to continue."
+        try {
+            // Check every two seconds for up to three minutes.
+            for (let attempt = 0; attempt < 90; attempt++) {
+                const result = await getStoryPrompt(
+                    activeSessionId,
+                    activePromptId
+                );
+
+                const prompt = result.storyPrompt;
+
+                if (
+                    prompt.aiFollowUpStatus === "READY" &&
+                    prompt.aiFollowUpText
+                ) {
+                    setAiFollowUpText(prompt.aiFollowUpText);
+                    return prompt.aiFollowUpText;
+                }
+
+                if (prompt.aiFollowUpStatus === "FAILED") {
+                    throw new Error(
+                        "The AI follow-up could not be generated. Please check the backend logs."
+                    );
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+            throw new Error(
+                "The next question is taking longer than expected. Please try again."
             );
+        } finally {
+            setIsWaitingForAI(false);
         }
     };
+
+    // --------------------------------------------------
+    // DONE: MOVE THROUGH THE THREE ANSWERS
+    // --------------------------------------------------
+
+    const handleDone = async () => {
+        if (!recordingId || !isSaved || isProcessing || isWaitingForAI) {
+            Alert.alert(
+                "Recording not ready",
+                "Please finish recording and wait until the upload is complete."
+            );
+            return;
+        }
+
+        player.pause();
+        clearCurrentRecording();
+
+        // Step 1 -> Step 2
+        if (answerType === "MAIN") {
+            if (!permanentFollowUpText.trim()) {
+                Alert.alert(
+                    "Follow-up question missing",
+                    "This question does not have a permanent follow-up configured in the database."
+                );
+                return;
+            }
+
+            setAnswerType("PERMANENT_FOLLOW_UP");
+            return;
+        }
+
+        // Step 2 -> Step 3
+        if (answerType === "PERMANENT_FOLLOW_UP") {
+            try {
+                await waitForAIFollowUp();
+                setAnswerType("AI_FOLLOW_UP");
+            } catch (error) {
+                Alert.alert(
+                    "Couldn't prepare the next question",
+                    error instanceof Error
+                        ? error.message
+                        : "Please try again."
+                );
+            }
+
+            return;
+        }
+
+        // Step 3 -> Next main question
+        const categoryQuestions = questions.filter(
+            question => question.categoryId === categoryId
+        );
+
+        const currentIndex = categoryQuestions.findIndex(
+            question => question.id === activeQuestion?.id
+        );
+
+        const nextQuestion = categoryQuestions[currentIndex + 1];
+
+        if (!nextQuestion) {
+            Alert.alert(
+                "Category completed",
+                "You've completed all the available questions in this category. You can choose another category to continue."
+            );
+            return;
+        }
+
+        setActiveQuestion(nextQuestion);
+
+        // Keep the same session, but prepare a new prompt for the next question.
+        storyPromptIdRef.current = null;
+        promptQuestionIdRef.current = null;
+        promptPromiseRef.current = null;
+
+        setStoryPromptId(null);
+        setPermanentFollowUpText("");
+        setAiFollowUpText("");
+        setAnswerType("MAIN");
+        setApiError(null);
+    };
+
+    // --------------------------------------------------
+    // MICROPHONE BUTTON
+    // --------------------------------------------------
+
     const handleMicrophone = async () => {
-        if (isPreparing) return;
+        if (isPreparing || isProcessing || isWaitingForAI) return;
 
         if (isCapturing) {
             await stopRecording();
@@ -430,6 +769,10 @@ export default function DashboardScreen() {
             await startRecording();
         }
     };
+
+    // --------------------------------------------------
+    // PLAYBACK
+    // --------------------------------------------------
 
     const handlePlayback = async () => {
         if (!recordingUri) return;
@@ -453,9 +796,52 @@ export default function DashboardScreen() {
         }
     };
 
-    const handleMemories = () => {
-        router.push('/(tabs)/memories');
+    // --------------------------------------------------
+    // CATEGORY SELECTION
+    // --------------------------------------------------
+
+    const handleCategoryChange = (promptId: string) => {
+        if (isCapturing || isProcessing || recordingId || isWaitingForAI) {
+            Alert.alert(
+                "Finish this answer first",
+                "Please complete the current recording before changing categories."
+            );
+            return;
+        }
+
+        setSelectedPrompt(promptId);
+
+        const nextCategoryId =
+            promptId === "love" ? "love" :
+                promptId === "fears" ? "life-lessons" :
+                    "little-things";
+
+        const nextQuestion = questions.find(
+            question => question.categoryId === nextCategoryId
+        );
+
+        if (nextQuestion) {
+            setActiveQuestion(nextQuestion);
+
+            storyPromptIdRef.current = null;
+            promptQuestionIdRef.current = null;
+            promptPromiseRef.current = null;
+
+            setStoryPromptId(null);
+            setPermanentFollowUpText("");
+            setAiFollowUpText("");
+            setAnswerType("MAIN");
+            setApiError(null);
+        }
     };
+
+    const handleMemories = () => {
+        router.push("/(tabs)/memories");
+    };
+
+    // --------------------------------------------------
+    // UI
+    // --------------------------------------------------
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -468,7 +854,6 @@ export default function DashboardScreen() {
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
             >
-                {/* Header */}
                 <View style={styles.header}>
                     <View style={styles.brandRow}>
                         <Text style={styles.brand}>our stories</Text>
@@ -485,13 +870,14 @@ export default function DashboardScreen() {
                     </Pressable>
                 </View>
 
-                {/* Main story card */}
                 <View style={styles.mainCard}>
                     <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
 
                     <Text style={styles.heading}>
                         {copy.heading}{"\n"}
-                        <Text style={styles.headingAccent}>{copy.headingAccent}</Text>
+                        <Text style={styles.headingAccent}>
+                            {copy.headingAccent}
+                        </Text>
                     </Text>
 
                     <Text style={styles.description}>
@@ -499,30 +885,59 @@ export default function DashboardScreen() {
                     </Text>
 
                     {isLoadingQuestions && !activeQuestion && (
-                        <View style={styles.questionBox}><ActivityIndicator color={colors.primary} /><Text style={styles.questionText}>{copy.loading}</Text></View>
+                        <View style={styles.questionBox}>
+                            <ActivityIndicator color={colors.primary} />
+                            <Text style={styles.questionText}>
+                                {copy.loading}
+                            </Text>
+                        </View>
                     )}
+
                     {!!activeQuestion && (
                         <View style={styles.questionBox}>
-                            <Text style={styles.questionEyebrow}>{copy.questionEyebrow}</Text>
-                            <Text style={styles.questionText}>{activeQuestion.text}</Text>
+                            <Text style={styles.questionEyebrow}>
+                                {stepLabel}
+                            </Text>
+
+                            <Text style={styles.questionText}>
+                                {displayedQuestion}
+                            </Text>
+
                             <Pressable
                                 style={styles.listenQuestionButton}
-                                onPress={isQuestionSpeaking ? stopQuestionSpeech : speakQuestion}
-                                accessibilityRole="button"
-                                accessibilityLabel={isQuestionSpeaking ? copy.stopQuestion : copy.listenQuestion}
+                                onPress={
+                                    isQuestionSpeaking
+                                        ? stopQuestionSpeech
+                                        : speakQuestion
+                                }
                             >
                                 <Text style={styles.listenQuestionButtonText}>
-                                    {isQuestionSpeaking ? "■  " + copy.stopQuestion : "🔊  " + copy.listenQuestion}
+                                    {isQuestionSpeaking
+                                        ? "■  " + copy.stopQuestion
+                                        : "🔊  " + copy.listenQuestion}
                                 </Text>
                             </Pressable>
                         </View>
                     )}
 
-                    {/* Microphone */}
+                    {isWaitingForAI && (
+                        <View style={styles.processingCard}>
+                            <ActivityIndicator color={colors.primary} />
+                            <Text style={styles.processingText}>
+                                {copy.waiting}
+                            </Text>
+                        </View>
+                    )}
+
                     <View style={styles.micSection}>
                         <Pressable
                             onPress={handleMicrophone}
-                            disabled={isPreparing}
+                            disabled={
+                                isPreparing ||
+                                isProcessing ||
+                                isWaitingForAI ||
+                                !activeQuestion
+                            }
                             style={({ pressed }) => [
                                 styles.micButton,
                                 isCapturing && styles.micButtonRecording,
@@ -530,7 +945,10 @@ export default function DashboardScreen() {
                             ]}
                         >
                             {isPreparing ? (
-                                <ActivityIndicator color="#FFFFFF" size="large" />
+                                <ActivityIndicator
+                                    color="#FFFFFF"
+                                    size="large"
+                                />
                             ) : (
                                 <Text style={styles.micIcon}>
                                     {isCapturing ? "■" : "▥"}
@@ -550,7 +968,11 @@ export default function DashboardScreen() {
                             <View style={styles.recordingStatus}>
                                 <View style={styles.recordingDot} />
                                 <Text style={styles.recordingTimer}>
-                                    {isPaused ? copy.pausedStatus : copy.recordingStatus} · {formatTime(duration)}
+                                    {isPaused
+                                        ? copy.pausedStatus
+                                        : copy.recordingStatus}
+                                    {" · "}
+                                    {formatTime(duration)}
                                 </Text>
                             </View>
                         ) : (
@@ -560,19 +982,39 @@ export default function DashboardScreen() {
                                     : copy.tapMic}
                             </Text>
                         )}
+
                         {isCapturing && (
                             <View style={styles.recordingControls}>
-                                <Pressable style={styles.secondaryControl} onPress={handlePauseResume} accessibilityRole="button">
-                                    <Text style={styles.secondaryControlText}>{isPaused ? copy.resume : copy.pause}</Text>
+                                <Pressable
+                                    style={styles.secondaryControl}
+                                    onPress={handlePauseResume}
+                                >
+                                    <Text style={styles.secondaryControlText}>
+                                        {isPaused ? copy.resume : copy.pause}
+                                    </Text>
                                 </Pressable>
-                                <Pressable style={styles.primaryControl} onPress={stopRecording} accessibilityRole="button">
-                                    <Text style={styles.primaryControlText}>{copy.stop}</Text>
+
+                                <Pressable
+                                    style={styles.primaryControl}
+                                    onPress={stopRecording}
+                                >
+                                    <Text style={styles.primaryControlText}>
+                                        {copy.stop}
+                                    </Text>
                                 </Pressable>
                             </View>
                         )}
                     </View>
 
-                    {/* Playback after recording */}
+                    {isProcessing && (
+                        <View style={styles.processingCard}>
+                            <ActivityIndicator color={colors.primary} />
+                            <Text style={styles.processingText}>
+                                {copy.upload}
+                            </Text>
+                        </View>
+                    )}
+
                     {isSaved && recordingUri && (
                         <View style={styles.playbackCard}>
                             <View style={styles.playbackInfo}>
@@ -581,22 +1023,33 @@ export default function DashboardScreen() {
                                 </View>
 
                                 <View style={{ flex: 1 }}>
-                                    <Text style={styles.playbackTitle}>{copy.playback}</Text>
-                                    <Text style={styles.playbackSubtitle}>{copy.preview}</Text>
+                                    <Text style={styles.playbackTitle}>
+                                        {copy.playback}
+                                    </Text>
+                                    <Text style={styles.playbackSubtitle}>
+                                        {copy.preview}
+                                    </Text>
                                 </View>
 
                                 <Pressable
                                     style={styles.playButton}
                                     onPress={handlePlayback}
-                                    accessibilityLabel={copy.preview}
                                 >
                                     <Text style={styles.playButtonText}>
                                         {playerStatus.playing ? "Ⅱ" : "▶"}
                                     </Text>
                                 </Pressable>
-                                <Pressable style={styles.retakeButton} onPress={handleRetake}>
-                                    <Text style={styles.retakeButtonText}>↻</Text>
-                                </Pressable>
+
+                                {!recordingId && (
+                                    <Pressable
+                                        style={styles.retakeButton}
+                                        onPress={handleRetake}
+                                    >
+                                        <Text style={styles.retakeButtonText}>
+                                            ↻
+                                        </Text>
+                                    </Pressable>
+                                )}
                             </View>
                         </View>
                     )}
@@ -605,6 +1058,7 @@ export default function DashboardScreen() {
                         <Pressable
                             style={styles.saveMemoryButton}
                             onPress={handleDone}
+                            disabled={isWaitingForAI || isProcessing}
                         >
                             <Text style={styles.saveMemoryButtonText}>
                                 {copy.done}
@@ -614,17 +1068,16 @@ export default function DashboardScreen() {
 
                     <View style={styles.cardDivider} />
 
-                    {/* Suggested prompts */}
                     <Text style={styles.promptHeading}>
                         {copy.nudge}
                     </Text>
 
                     <View style={styles.promptRow}>
-                        {prompts.map((prompt) => (
+                        {prompts.map(prompt => (
                             <Pressable
                                 key={prompt.id}
                                 style={styles.promptItem}
-                                onPress={() => setSelectedPrompt(prompt.id)}
+                                onPress={() => handleCategoryChange(prompt.id)}
                             >
                                 <View
                                     style={[
@@ -646,7 +1099,11 @@ export default function DashboardScreen() {
                                         styles.promptTitleSelected,
                                     ]}
                                 >
-                                    {languageCode === "en" ? prompt.title : prompt.id === "love" ? copy.love : prompt.id === "fears" ? copy.fears : copy.little}
+                                    {prompt.id === "love"
+                                        ? copy.love
+                                        : prompt.id === "fears"
+                                            ? copy.fears
+                                            : copy.little}
                                 </Text>
                             </Pressable>
                         ))}
@@ -654,40 +1111,37 @@ export default function DashboardScreen() {
 
                     <View style={styles.cardDivider} />
 
-                    {/* Memories */}
                     <Pressable
                         style={styles.memoriesRow}
                         onPress={handleMemories}
                     >
-                        <Text style={styles.memoriesTitle}>{copy.memories}</Text>
+                        <Text style={styles.memoriesTitle}>
+                            {copy.memories}
+                        </Text>
                         <Text style={styles.memoriesArrow}>→</Text>
                     </Pressable>
                 </View>
 
-                {isProcessing && (
-                    <View style={styles.processingCard}>
-                        <ActivityIndicator color={colors.primary} />
-                        <Text style={styles.processingText}>
-                            Saving your original voice recording…
+                {!!apiError && (
+                    <Text style={styles.apiError}>
+                        {apiError}
+                    </Text>
+                )}
+
+                {!!permissionMessage && (
+                    <View style={styles.permissionNotice}>
+                        <Text style={styles.permissionNoticeTitle}>
+                            Microphone access needed
+                        </Text>
+                        <Text style={styles.permissionNoticeText}>
+                            {permissionMessage}
                         </Text>
                     </View>
                 )}
 
-                {!!apiError && (
-                    <Text style={styles.apiError}>Questions: {apiError}</Text>
-                )}
-                {!!permissionMessage && (
-                    <View style={styles.permissionNotice}>
-                        <Text style={styles.permissionNoticeTitle}>Microphone access needed</Text>
-                        <Text style={styles.permissionNoticeText}>{permissionMessage}</Text>
-                    </View>
-                )}
-
-                
-
-                {/* Language selector */}
                 <View style={styles.languageRow}>
                     <Pressable
+                        disabled={isCapturing || isProcessing || !!recordingId}
                         onPress={() => setLanguage("English")}
                         style={[
                             styles.languageOption,
@@ -707,21 +1161,44 @@ export default function DashboardScreen() {
                     <Text style={styles.languageSeparator}>+</Text>
 
                     <Pressable
+                        disabled={isCapturing || isProcessing || !!recordingId}
                         onPress={() => setLanguage("ગુજરાતી")}
-                        style={[styles.languageOption, language === "ગુજરાતી" && styles.languageSelected]}
+                        style={[
+                            styles.languageOption,
+                            language === "ગુજરાતી" && styles.languageSelected,
+                        ]}
                     >
-                        <Text style={[styles.languageText, language === "ગુજરાતી" && styles.languageTextSelected]}>ગુજરાતી</Text>
+                        <Text
+                            style={[
+                                styles.languageText,
+                                language === "ગુજરાતી" && styles.languageTextSelected,
+                            ]}
+                        >
+                            ગુજરાતી
+                        </Text>
                     </Pressable>
+
                     <Text style={styles.languageSeparator}>+</Text>
+
                     <Pressable
+                        disabled={isCapturing || isProcessing || !!recordingId}
                         onPress={() => setLanguage("हिन्दी")}
-                        style={[styles.languageOption, language === "हिन्दी" && styles.languageSelected]}
+                        style={[
+                            styles.languageOption,
+                            language === "हिन्दी" && styles.languageSelected,
+                        ]}
                     >
-                        <Text style={[styles.languageText, language === "हिन्दी" && styles.languageTextSelected]}>हिन्दी</Text>
+                        <Text
+                            style={[
+                                styles.languageText,
+                                language === "हिन्दी" && styles.languageTextSelected,
+                            ]}
+                        >
+                            हिन्दी
+                        </Text>
                     </Pressable>
                 </View>
 
-                {/* Preview status */}
                 <View style={styles.footer}>
                     <View style={styles.footerDot} />
                     <Text style={styles.footerText}>
@@ -733,25 +1210,11 @@ export default function DashboardScreen() {
     );
 }
 
+// --------------------------------------------------
+// STYLES
+// --------------------------------------------------
+
 const styles = StyleSheet.create({
-    questionBox: { backgroundColor: "#E9EFDF", borderRadius: 16, padding: 14, marginTop: 22 },
-    questionEyebrow: { color: colors.secondaryText, fontSize: 9, fontWeight: "800", letterSpacing: 1.2, marginBottom: 7 },
-    questionText: { color: colors.primaryDark, fontSize: 16, lineHeight: 23, fontWeight: "600" },
-    processingCard: { backgroundColor: "#F8F8F0", borderRadius: 16, padding: 16, marginTop: 14, flexDirection: "row", alignItems: "center", gap: 12 },
-    processingText: { color: colors.text, fontSize: 13, flex: 1 },
-    apiError: { color: "#A64E43", fontSize: 12, marginTop: 12, textAlign: "center" },
-    permissionNotice: { backgroundColor: "#FFF3E8", borderColor: "#E8C6A8", borderWidth: 1, borderRadius: 14, padding: 13, marginTop: 12 },
-    permissionNoticeTitle: { color: "#8C4C25", fontSize: 13, fontWeight: "700", marginBottom: 5 },
-    permissionNoticeText: { color: "#704D37", fontSize: 12, lineHeight: 18 },
-    reviewCard: { backgroundColor: "#F8F8F0", borderRadius: 22, borderWidth: 1, borderColor: colors.border, padding: 18, marginTop: 16 },
-    reviewHeading: { color: colors.text, fontSize: 23, fontWeight: "700", marginBottom: 16 },
-    reviewLabel: { color: colors.secondaryText, fontSize: 9, fontWeight: "800", letterSpacing: 1.2, marginTop: 12, marginBottom: 7 },
-    reviewText: { color: colors.text, fontSize: 15, lineHeight: 23 },
-    followUpBox: { backgroundColor: "#E9EFDF", borderRadius: 12, padding: 12, marginTop: 12 },
-    followUpText: { color: colors.primaryDark, fontSize: 14, lineHeight: 21, fontWeight: "600" },
-    saveMemoryButton: { backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 15, alignItems: "center", marginTop: 18 },
-    savedMemoryButton: { backgroundColor: "#718174" },
-    saveMemoryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
     safeArea: {
         flex: 1,
         backgroundColor: colors.background,
@@ -762,8 +1225,6 @@ const styles = StyleSheet.create({
         paddingTop: 10,
         paddingBottom: 28,
     },
-
-    // Header
     header: {
         flexDirection: "row",
         alignItems: "center",
@@ -802,8 +1263,6 @@ const styles = StyleSheet.create({
         color: colors.primary,
         fontSize: 22,
     },
-
-    // Main card
     mainCard: {
         backgroundColor: "#F8F8F0",
         borderRadius: 27,
@@ -842,8 +1301,38 @@ const styles = StyleSheet.create({
         fontSize: 12,
         marginTop: 9,
     },
-
-    // Microphone
+    questionBox: {
+        backgroundColor: "#E9EFDF",
+        borderRadius: 16,
+        padding: 14,
+        marginTop: 22,
+    },
+    questionEyebrow: {
+        color: colors.secondaryText,
+        fontSize: 9,
+        fontWeight: "800",
+        letterSpacing: 1.2,
+        marginBottom: 7,
+    },
+    questionText: {
+        color: colors.primaryDark,
+        fontSize: 16,
+        lineHeight: 23,
+        fontWeight: "600",
+    },
+    listenQuestionButton: {
+        alignSelf: "flex-start",
+        marginTop: 12,
+        borderRadius: 22,
+        backgroundColor: "#E7EFDF",
+        paddingVertical: 9,
+        paddingHorizontal: 15,
+    },
+    listenQuestionButtonText: {
+        color: colors.primary,
+        fontSize: 13,
+        fontWeight: "700",
+    },
     micSection: {
         alignItems: "center",
         marginTop: 31,
@@ -905,8 +1394,41 @@ const styles = StyleSheet.create({
         fontWeight: "800",
         letterSpacing: 1,
     },
-
-    // Playback
+    recordingControls: {
+        flexDirection: "row",
+        gap: 10,
+        width: "100%",
+        marginTop: 16,
+    },
+    secondaryControl: {
+        flex: 1,
+        minHeight: 46,
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 12,
+    },
+    secondaryControlText: {
+        color: colors.primary,
+        fontSize: 14,
+        fontWeight: "700",
+    },
+    primaryControl: {
+        flex: 1,
+        minHeight: 46,
+        borderRadius: 24,
+        backgroundColor: colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 12,
+    },
+    primaryControlText: {
+        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "700",
+    },
     playbackCard: {
         backgroundColor: "#EDF1E7",
         borderRadius: 14,
@@ -952,8 +1474,46 @@ const styles = StyleSheet.create({
         color: "#FFFFFF",
         fontSize: 13,
     },
-
-    // Prompts
+    retakeButton: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F1E9DB",
+        marginLeft: 8,
+    },
+    retakeButtonText: {
+        color: colors.primary,
+        fontSize: 25,
+        fontWeight: "600",
+    },
+    saveMemoryButton: {
+        backgroundColor: colors.primary,
+        borderRadius: 14,
+        paddingVertical: 15,
+        alignItems: "center",
+        marginTop: 18,
+    },
+    saveMemoryButtonText: {
+        color: "#FFFFFF",
+        fontSize: 15,
+        fontWeight: "700",
+    },
+    processingCard: {
+        backgroundColor: "#F8F8F0",
+        borderRadius: 16,
+        padding: 16,
+        marginTop: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+    },
+    processingText: {
+        color: colors.text,
+        fontSize: 13,
+        flex: 1,
+    },
     cardDivider: {
         height: 1,
         backgroundColor: "#E6E8DE",
@@ -997,8 +1557,6 @@ const styles = StyleSheet.create({
         color: colors.primary,
         fontWeight: "700",
     },
-
-    // Memories
     memoriesRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -1013,8 +1571,31 @@ const styles = StyleSheet.create({
         color: colors.primary,
         fontSize: 20,
     },
-
-    // Language
+    permissionNotice: {
+        backgroundColor: "#FFF3E8",
+        borderColor: "#E8C6A8",
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: 13,
+        marginTop: 12,
+    },
+    permissionNoticeTitle: {
+        color: "#8C4C25",
+        fontSize: 13,
+        fontWeight: "700",
+        marginBottom: 5,
+    },
+    permissionNoticeText: {
+        color: "#704D37",
+        fontSize: 12,
+        lineHeight: 18,
+    },
+    apiError: {
+        color: "#A64E43",
+        fontSize: 12,
+        marginTop: 12,
+        textAlign: "center",
+    },
     languageRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -1042,8 +1623,6 @@ const styles = StyleSheet.create({
         color: colors.secondaryText,
         fontSize: 11,
     },
-
-    // Footer
     footer: {
         flexDirection: "row",
         justifyContent: "center",
@@ -1063,15 +1642,4 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         letterSpacing: 1.1,
     },
-
-    recordingControls: { flexDirection: "row", gap: 10, width: "100%", marginTop: 16 },
-    secondaryControl: { flex: 1, minHeight: 46, borderRadius: 24, borderWidth: 1, borderColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
-    secondaryControlText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
-    primaryControl: { flex: 1, minHeight: 46, borderRadius: 24, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
-    primaryControlText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
-    retakeButton: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#F1E9DB", marginLeft: 8 },
-    retakeButtonText: { color: colors.primary, fontSize: 25, fontWeight: "600" },
-
-    listenQuestionButton: { alignSelf: "flex-start", marginTop: 12, borderRadius: 22, backgroundColor: "#E7EFDF", paddingVertical: 9, paddingHorizontal: 15 },
-    listenQuestionButtonText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
 });

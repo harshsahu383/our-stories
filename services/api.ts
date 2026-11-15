@@ -122,19 +122,21 @@ export async function createStorySession(
 }
 
 // Upload only. No transcription or translation happens here.
+
+
 export async function uploadRecording(
   sessionId: string,
   uri: string,
-  filename = 'story.m4a'
+  filename: string,
+  storyPromptId: string,
+  answerType: AnswerType
 ) {
-  if (!uri) {
-    throw new Error('No audio recording was found on this device.');
+  if (!authToken) {
+    throw new Error('You are not authenticated.');
   }
 
-  const headers: Record<string, string> = {};
-
-  if (authToken) {
-    headers.Authorization = `Bearer ${authToken}`;
+  if (!sessionId || !storyPromptId || !answerType || !uri) {
+    throw new Error('Missing session, prompt, answer type or audio file.');
   }
 
   const result = await FileSystem.uploadAsync(
@@ -145,34 +147,30 @@ export async function uploadRecording(
       uploadType: FileSystem.FileSystemUploadType.MULTIPART,
       fieldName: 'audio',
       mimeType: 'audio/m4a',
-      headers,
-      parameters: { filename },
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      parameters: {
+        storyPromptId,
+        answerType,
+      },
     }
   );
 
-  let data: any = {};
-
-  try {
-    data = result.body ? JSON.parse(result.body) : {};
-  } catch {
-    throw new Error(
-      `Unreadable upload response (HTTP ${result.status}).`
-    );
-  }
+  const data = JSON.parse(result.body || '{}');
 
   if (result.status < 200 || result.status >= 300) {
     throw new Error(
-      data.error || data.message ||
+      data.error ||
+      data.message ||
       `Audio upload failed (HTTP ${result.status}).`
     );
   }
 
-  if (!data.recording) {
-    throw new Error('The server did not return the saved recording.');
-  }
-
   return data.recording as Recording;
 }
+
+
 
 // Fetch all uploaded recordings, including unreviewed ones.
 export async function getRecordings() {
@@ -256,4 +254,49 @@ export async function saveMemory(
 
 export async function getMemories() {
   return request<{ memories: Memory[] }>('/memories');
+}
+
+export type AnswerType =
+  | 'MAIN'
+  | 'PERMANENT_FOLLOW_UP'
+  | 'AI_FOLLOW_UP';
+
+export type StoryPrompt = {
+  id: string;
+  sessionId: string;
+  questionId: string;
+  permanentFollowUpText: string;
+  aiFollowUpText: string | null;
+  aiFollowUpStatus: 'PENDING' | 'GENERATING' | 'READY' | 'FAILED';
+  question: StoryQuestion;
+  recordings: Recording[];
+};
+
+export async function createStoryPrompt(
+  sessionId: string,
+  questionId: string,
+  sortOrder = 0
+) {
+  return request<{ storyPrompt: StoryPrompt }>(
+    `/sessions/${sessionId}/prompts`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ questionId, sortOrder }),
+    }
+  );
+}
+
+export async function getStoryPrompt(
+  sessionId: string,
+  promptId: string
+) {
+  return request<{ storyPrompt: StoryPrompt }>(
+    `/sessions/${sessionId}/prompts/${promptId}`
+  );
+}
+
+export async function getSessionPrompts(sessionId: string) {
+  return request<{ prompts: StoryPrompt[] }>(
+    `/sessions/${sessionId}/prompts`
+  );
 }

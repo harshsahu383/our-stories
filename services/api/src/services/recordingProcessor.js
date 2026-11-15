@@ -6,13 +6,118 @@ import { prisma } from '../config/prisma.js';
 import {
     transcribeAudio,
     translateToEnglish,
+    createFollowUp
 } from './ai.js';
+
+async function generatePromptFollowUp(storyPromptId) {
+    try {
+        // Read the prompt and its processed answers.
+        const storyPrompt = await prisma.storyPrompt.findUnique({
+            where: { id: storyPromptId },
+            include: {
+                question: true,
+                recordings: true
+            }
+        });
+
+        if (!storyPrompt || storyPrompt.aiFollowUpText) {
+            return;
+        }
+
+        const mainRecording = storyPrompt.recordings.find(
+            (recording) => recording.answerType === 'MAIN'
+        );
+
+        const permanentRecording = storyPrompt.recordings.find(
+            (recording) =>
+                recording.answerType === 'PERMANENT_FOLLOW_UP'
+        );
+
+        // Both answers must be fully processed before generating the question.
+        if (
+            !mainRecording ||
+            !permanentRecording ||
+            mainRecording.status !== 'SAVED' ||
+            permanentRecording.status !== 'SAVED' ||
+            !mainRecording.englishTranslation ||
+            !permanentRecording.englishTranslation
+        ) {
+            return;
+        }
+
+        // Atomically claim generation so concurrent processors cannot
+        // generate multiple AI questions for the same prompt.
+        const claim = await prisma.storyPrompt.updateMany({
+            where: {
+                id: storyPromptId,
+                aiFollowUpText: null,
+                aiFollowUpStatus: 'PENDING'
+            },
+            data: {
+                aiFollowUpStatus: 'GENERATING'
+            }
+        });
+
+        if (claim.count === 0) {
+            return;
+        }
+
+        try {
+            const combinedAnswer =
+                `Main answer:\n${mainRecording.englishTranslation}\n\n` +
+                `Permanent follow-up answer:\n${permanentRecording.englishTranslation}`;
+
+            const aiQuestion = await createFollowUp({
+                question: storyPrompt.question.text,
+                answer: combinedAnswer,
+                language: storyPrompt.question.language
+            });
+
+            if (!aiQuestion) {
+                throw new Error('AI returned an empty follow-up question.');
+            }
+
+            await prisma.storyPrompt.update({
+                where: { id: storyPromptId },
+                data: {
+                    aiFollowUpText: aiQuestion,
+                    aiFollowUpStatus: 'READY'
+                }
+            });
+
+            console.log(
+                `AI follow-up generated for StoryPrompt ${storyPromptId}.`
+            );
+        } catch (error) {
+            await prisma.storyPrompt.update({
+                where: { id: storyPromptId },
+                data: {
+                    aiFollowUpStatus: 'FAILED'
+                }
+            });
+
+            throw error;
+        }
+    } catch (error) {
+        console.error(
+            `AI follow-up generation failed for ${storyPromptId}:`,
+            error instanceof Error ? error.message : error
+        );
+    }
+}
 
 export async function processRecording(recordingId) {
     try {
         const recording = await prisma.recording.findUnique({
             where: { id: recordingId },
-            include: { session: true },
+            include: {
+                session: true,
+                storyPrompt: {
+                    include: {
+                        question: true
+                    }
+                }
+            }
         });
 
         if (!recording) {
@@ -23,9 +128,10 @@ export async function processRecording(recordingId) {
             throw new Error('The recording has no audio storage key.');
         }
 
-        // This processor currently uses local audio storage.
         if (process.env.STORAGE_DRIVER === 's3') {
-            throw new Error('This processor is configured for local storage only.');
+            throw new Error(
+                'S3 processing is not configured. Use local storage until S3 download support is implemented.'
+            );
         }
 
         const uploadDir = path.resolve(
@@ -37,7 +143,6 @@ export async function processRecording(recordingId) {
             recording.originalAudioKey
         );
 
-        // Prevent a storage key from escaping the upload directory.
         if (
             audioPath === uploadDir ||
             !audioPath.startsWith(uploadDir + path.sep)
@@ -47,69 +152,104 @@ export async function processRecording(recordingId) {
 
         await fs.access(audioPath);
 
-        const language = recording.session.language;
-
-        // 1. Transcribe using the selected recording language.
         await prisma.recording.update({
             where: { id: recordingId },
             data: {
                 status: 'TRANSCRIBING',
                 processingError: null,
-            },
+                originalTranscript: null,
+                detectedLanguage: null
+            }
         });
 
-        const transcript = await transcribeAudio(audioPath, language);
+        // Detect and transcribe the language actually spoken.
+        const originalTranscript = await transcribeAudio(audioPath);
 
-        if (!transcript) {
+        if (!originalTranscript?.trim()) {
             throw new Error('No speech was detected in this recording.');
         }
 
         await prisma.recording.update({
             where: { id: recordingId },
             data: {
-                originalTranscript: transcript,
-                detectedLanguage: language,
-                status: 'TRANSLATING',
-            },
+                status: 'TRANSLATING'
+            }
         });
 
-        // 2. Translate into English.
-        const englishTranslation =
-            language === 'en'
-                ? transcript
-                : await translateToEnglish(transcript, language);
+        // All saved memory text is English.
+        const englishTranslation = await translateToEnglish(
+            originalTranscript
+        );
 
         if (!englishTranslation?.trim()) {
             throw new Error('English translation was empty.');
         }
 
-        // 3. Save the completed result directly on the recording.
+        const englishText = englishTranslation.trim();
+
+        // Create the memory automatically after successful processing.
+        await prisma.memory.upsert({
+            where: {
+                recordingId: recording.id
+            },
+            update: {
+                transcript: englishText,
+                translation: englishText
+            },
+            create: {
+                userId: recording.session.userId,
+                recordingId: recording.id,
+                title:
+                    englishText.length > 80
+                        ? `${englishText.slice(0, 77)}...`
+                        : englishText,
+                transcript: englishText,
+                translation: englishText,
+                visibility: 'PRIVATE'
+            }
+        });
+
+        // Do not persist the source-language transcript.
         await prisma.recording.update({
             where: { id: recordingId },
             data: {
-                englishTranslation: englishTranslation.trim(),
+                originalTranscript: null,
+                englishTranslation: englishText,
+                detectedLanguage: null,
                 status: 'SAVED',
-                processingError: null,
-            },
+                processingError: null
+            }
         });
 
         console.log(`Recording ${recordingId} processed successfully.`);
+
+        // Once MAIN and PERMANENT_FOLLOW_UP are both saved,
+        // generate exactly one AI follow-up question.
+        if (recording.storyPromptId) {
+            await generatePromptFollowUp(recording.storyPromptId);
+        }
     } catch (error) {
         const message =
             error instanceof Error
                 ? error.message
                 : 'Recording processing failed.';
 
-        console.error(`Recording ${recordingId} processing failed:`, message);
+        console.error(
+            `Recording ${recordingId} processing failed:`,
+            message
+        );
 
         await prisma.recording.update({
             where: { id: recordingId },
             data: {
                 status: 'FAILED',
-                processingError: message,
-            },
+                processingError: message
+            }
         }).catch((dbError) => {
-            console.error('Could not update failed recording:', dbError);
+            console.error(
+                'Could not update failed recording:',
+                dbError
+            );
         });
     }
 }

@@ -9,10 +9,7 @@ import { prisma } from '../config/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { saveAudio } from '../services/storage.js';
 import { processRecording } from '../services/recordingProcessor.js';
-import {
-  transcribeAudio,
-  translateToEnglish,
-} from '../services/ai.js';
+
 
 const router = Router();
 
@@ -179,29 +176,24 @@ router.post('/sessions', requireAuth, async (req, res, next) => {
 
     res.status(201).json({ session });
   } catch (error) {
+    console.error('CREATE STORY SESSION ERROR:', error);
     next(error);
   }
 });
 
-/*
- * STEP 1: UPLOAD RECORDING
- *
- * This endpoint ONLY stores the original audio.
- * It does NOT transcribe, translate or generate follow-up questions.
- */
-
+// Create a StoryPrompt inside an existing story session.
 router.post(
-  '/sessions/:sessionId/recordings',
+  '/sessions/:sessionId/prompts',
   requireAuth,
-  upload.single('audio'),
   async (req, res, next) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({
-          error: 'Audio file is required.',
-        });
-      }
+      const data = z
+        .object({
+          questionId: z.string().min(1),
+        })
+        .parse(req.body);
 
+      // Verify that this session belongs to the logged-in user.
       const session = await prisma.storySession.findFirst({
         where: {
           id: req.params.sessionId,
@@ -215,32 +207,294 @@ router.post(
         });
       }
 
-      // Save original audio to local storage.
-      const stored = await saveAudio(req.file);
-
-      // Create the recording in PostgreSQL.
-      const recording = await prisma.recording.create({
-        data: {
-          sessionId: session.id,
-          originalAudioUrl: stored.url,
-          originalAudioKey: stored.key,
-          mimeType: req.file.mimetype,
-          status: 'UPLOADED',
+      // Find the question in the session's selected language.
+      const question = await prisma.question.findFirst({
+        where: {
+          id: data.questionId,
+          language: session.language,
+          isActive: true,
         },
       });
 
-      // Start AI processing without making the user wait.
+      if (!question) {
+        return res.status(404).json({
+          error: 'Question not found for this session language.',
+        });
+      }
+
+      // Avoid creating the same prompt twice in one session.
+      const existingPrompt = await prisma.storyPrompt.findUnique({
+        where: {
+          sessionId_questionId: {
+            sessionId: session.id,
+            questionId: question.id,
+          },
+        },
+        include: {
+          question: true,
+        },
+      });
+
+      if (existingPrompt) {
+        return res.status(200).json({
+          storyPrompt: existingPrompt,
+        });
+      }
+
+      const lastPrompt = await prisma.storyPrompt.findFirst({
+        where: {
+          sessionId: session.id,
+        },
+        orderBy: {
+          sortOrder: 'desc',
+        },
+      });
+
+      const storyPrompt = await prisma.storyPrompt.create({
+        data: {
+          sessionId: session.id,
+          questionId: question.id,
+          permanentFollowUpText: question.permanentFollowUpText,
+          sortOrder: (lastPrompt?.sortOrder ?? -1) + 1,
+        },
+        include: {
+          question: true,
+        },
+      });
+
+      return res.status(201).json({
+        storyPrompt,
+      });
+    } catch (error) {
+      console.error('CREATE STORY PROMPT ERROR:', error);
+      next(error);
+    }
+  }
+);
+
+
+
+
+/**
+ * Get all StoryPrompts in a session.
+ */
+router.get('/sessions/:sessionId/prompts', requireAuth, async (req, res, next) => {
+  try {
+    const session = await prisma.storySession.findFirst({
+      where: {
+        id: req.params.sessionId,
+        userId: req.user.id
+      }
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Story session not found.' });
+    }
+
+    const prompts = await prisma.storyPrompt.findMany({
+      where: {
+        sessionId: session.id
+      },
+      orderBy: {
+        sortOrder: 'asc'
+      },
+      include: {
+        question: true,
+        recordings: {
+          orderBy: {
+            createdAt: 'asc'
+          },
+          select: {
+            id: true,
+            answerType: true,
+            status: true,
+            englishTranslation: true,
+            processingError: true,
+            createdAt: true
+          }
+        }
+      }
+    });
+
+    return res.json({ prompts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Get one StoryPrompt, including its AI follow-up.
+ * The mobile app can poll this endpoint while AI generation is running.
+ */
+router.get(
+  '/sessions/:sessionId/prompts/:promptId',
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      const storyPrompt = await prisma.storyPrompt.findFirst({
+        where: {
+          id: req.params.promptId,
+          sessionId: req.params.sessionId,
+          session: {
+            userId: req.user.id
+          }
+        },
+        include: {
+          question: true,
+          recordings: {
+            orderBy: {
+              createdAt: 'asc'
+            },
+            select: {
+              id: true,
+              answerType: true,
+              status: true,
+              englishTranslation: true,
+              processingError: true,
+              createdAt: true
+            }
+          }
+        }
+      });
+
+      if (!storyPrompt) {
+        return res.status(404).json({
+          error: 'Story prompt not found.'
+        });
+      }
+
+      return res.json({ storyPrompt });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+
+/*
+ * STEP 1: UPLOAD RECORDING
+ *
+ * This endpoint ONLY stores the original audio.
+ * It does NOT transcribe, translate or generate follow-up questions.
+ */
+
+
+/**
+ * Upload one answer recording.
+ *
+ * Required multipart fields:
+ * - audio
+ * - storyPromptId
+ * - answerType: MAIN | PERMANENT_FOLLOW_UP | AI_FOLLOW_UP
+ */
+router.post(
+  '/sessions/:sessionId/recordings',
+  requireAuth,
+  upload.single('audio'),
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'Audio file is required.'
+        });
+      }
+
+      const data = z.object({
+        storyPromptId: z.string().min(1),
+        answerType: z.enum([
+          'MAIN',
+          'PERMANENT_FOLLOW_UP',
+          'AI_FOLLOW_UP'
+        ])
+      }).safeParse(req.body);
+
+      if (!data.success) {
+        return res.status(400).json({
+          error: 'A valid storyPromptId and answerType are required.'
+        });
+      }
+
+      const session = await prisma.storySession.findFirst({
+        where: {
+          id: req.params.sessionId,
+          userId: req.user.id
+        }
+      });
+
+      if (!session) {
+        return res.status(404).json({
+          error: 'Story session not found.'
+        });
+      }
+
+      const storyPrompt = await prisma.storyPrompt.findFirst({
+        where: {
+          id: data.data.storyPromptId,
+          sessionId: session.id
+        }
+      });
+
+      if (!storyPrompt) {
+        return res.status(404).json({
+          error: 'Story prompt not found in this session.'
+        });
+      }
+
+      // The third answer can only be uploaded after AI generates it.
+      if (
+        data.data.answerType === 'AI_FOLLOW_UP' &&
+        (
+          storyPrompt.aiFollowUpStatus !== 'READY' ||
+          !storyPrompt.aiFollowUpText
+        )
+      ) {
+        return res.status(409).json({
+          error: 'The AI follow-up question is not ready yet.'
+        });
+      }
+
+      // Do not allow multiple recordings for the same answer step.
+      const existingRecording = await prisma.recording.findFirst({
+        where: {
+          storyPromptId: storyPrompt.id,
+          answerType: data.data.answerType
+        }
+      });
+
+      if (existingRecording) {
+        return res.status(409).json({
+          error: 'A recording already exists for this answer step.',
+          recording: existingRecording
+        });
+      }
+
+      const stored = await saveAudio(req.file);
+
+      const recording = await prisma.recording.create({
+        data: {
+          sessionId: session.id,
+          storyPromptId: storyPrompt.id,
+          answerType: data.data.answerType,
+          originalAudioUrl: stored.url,
+          originalAudioKey: stored.key,
+          mimeType: req.file.mimetype,
+          status: 'UPLOADED'
+        }
+      });
+
+      // Process the recording asynchronously.
       void processRecording(recording.id);
 
       return res.status(201).json({
-        message: 'Recording saved. English translation is processing.',
-        recording,
+        message: 'Recording uploaded. English translation is processing.',
+        recording
       });
     } catch (error) {
       next(error);
     }
   }
 );
+
 
 
 /*
@@ -250,157 +504,7 @@ router.post(
  * This currently supports local storage. S3 processing needs a storage
  * download/read function before it can be enabled.
  */
-router.post(
-  '/recordings/:recordingId/review',
-  requireAuth,
-  async (req, res, next) => {
-    let recordingId;
 
-    try {
-      const recording = await prisma.recording.findFirst({
-        where: {
-          id: req.params.recordingId,
-          session: {
-            userId: req.user.id,
-          },
-        },
-        include: {
-          session: true,
-        },
-      });
-
-      if (!recording) {
-        return res.status(404).json({
-          error: 'Recording not found.',
-        });
-      }
-
-      // If already reviewed, return the existing result.
-      if (
-        recording.originalTranscript &&
-        recording.englishTranslation &&
-        recording.status !== 'FAILED'
-      ) {
-        return res.json({
-          recording,
-          message: 'This recording has already been reviewed.',
-        });
-      }
-
-      if (process.env.STORAGE_DRIVER === 's3') {
-        return res.status(501).json({
-          error:
-            'Review processing for S3 storage is not configured yet. Local storage is currently required.',
-        });
-      }
-
-      recordingId = recording.id;
-
-      const uploadDir = path.resolve(
-        process.env.UPLOAD_DIR || './uploads'
-      );
-
-      const audioPath = path.resolve(
-        uploadDir,
-        recording.originalAudioKey
-      );
-
-      // Prevent a storage key from escaping the upload directory.
-      if (
-        audioPath !== uploadDir &&
-        !audioPath.startsWith(uploadDir + path.sep)
-      ) {
-        return res.status(400).json({
-          error: 'Invalid recording storage path.',
-        });
-      }
-
-      await fs.access(audioPath);
-
-      await prisma.recording.update({
-        where: {
-          id: recording.id,
-        },
-        data: {
-          status: 'TRANSCRIBING',
-          processingError: null,
-        },
-      });
-
-      const language = recording.session.language;
-
-      // Transcribe in the original language.
-      const transcript = await transcribeAudio(
-        audioPath,
-        language
-      );
-
-      if (!transcript || !transcript.trim()) {
-        throw new Error(
-          'No speech was detected. Please try reviewing this recording again.'
-        );
-      }
-
-      await prisma.recording.update({
-        where: {
-          id: recording.id,
-        },
-        data: {
-          originalTranscript: transcript.trim(),
-          detectedLanguage: language,
-          status: 'TRANSLATING',
-        },
-      });
-
-      // English recordings do not need another translation call.
-      const translation =
-        language === 'en'
-          ? transcript.trim()
-          : await translateToEnglish(transcript, language);
-
-      if (!translation || !translation.trim()) {
-        throw new Error(
-          'The English translation could not be generated. Please try again.'
-        );
-      }
-
-      const updatedRecording = await prisma.recording.update({
-        where: {
-          id: recording.id,
-        },
-        data: {
-          englishTranslation: translation.trim(),
-          status: 'REVIEW_PENDING',
-          processingError: null,
-        },
-      });
-
-      return res.json({
-        message: 'Your recording has been reviewed successfully.',
-        recording: updatedRecording,
-      });
-    } catch (error) {
-      if (recordingId) {
-        await prisma.recording
-          .update({
-            where: {
-              id: recordingId,
-            },
-            data: {
-              status: 'FAILED',
-              processingError:
-                error instanceof Error
-                  ? error.message
-                  : 'Review processing failed.',
-            },
-          })
-          .catch(() => { });
-      }
-
-      next(error);
-    }
-  }
-);
 
 /*
  * STEP 3: SAVE REVIEWED MEMORY
@@ -408,80 +512,7 @@ router.post(
  * The transcript and translation come from the database,
  * not from unverified values sent by the mobile app.
  */
-router.post(
-  '/recordings/:recordingId/save',
-  requireAuth,
-  async (req, res, next) => {
-    try {
-      const data = z
-        .object({
-          title: z.string().min(1).max(120),
-          visibility: z
-            .enum(['PRIVATE', 'FAMILY'])
-            .default('PRIVATE'),
-        })
-        .parse(req.body);
 
-      const recording = await prisma.recording.findFirst({
-        where: {
-          id: req.params.recordingId,
-          session: {
-            userId: req.user.id,
-          },
-        },
-      });
-
-      if (!recording) {
-        return res.status(404).json({
-          error: 'Recording not found.',
-        });
-      }
-
-      if (
-        !recording.originalTranscript ||
-        !recording.englishTranslation ||
-        !['REVIEW_PENDING', 'SAVED'].includes(recording.status)
-      ) {
-        return res.status(400).json({
-          error: 'Please review this recording before saving it as a memory.',
-        });
-      }
-
-      const memory = await prisma.memory.upsert({
-        where: {
-          recordingId: recording.id,
-        },
-        update: {
-          title: data.title,
-          transcript: recording.originalTranscript,
-          translation: recording.englishTranslation,
-          visibility: data.visibility,
-        },
-        create: {
-          userId: req.user.id,
-          recordingId: recording.id,
-          title: data.title,
-          transcript: recording.originalTranscript,
-          translation: recording.englishTranslation,
-          visibility: data.visibility,
-        },
-      });
-
-      await prisma.recording.update({
-        where: {
-          id: recording.id,
-        },
-        data: {
-          status: 'SAVED',
-        },
-      });
-
-      return res.status(201).json({ memory });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
 
 // Get all recordings belonging to the logged-in user,
 // including recordings that have not yet been reviewed.
@@ -499,10 +530,15 @@ router.get('/recordings', requireAuth, async (req, res, next) => {
       include: {
         session: {
           include: {
-            question: true,
-          },
+            question: true
+          }
         },
-        memory: true,
+        storyPrompt: {
+          include: {
+            question: true
+          }
+        },
+        memory: true
       },
     });
 
@@ -576,24 +612,34 @@ router.get('/recordings/:recordingId/audio', requireAuth, async (req, res, next)
 
 
 // Get saved memories.
+
 router.get('/memories', requireAuth, async (req, res, next) => {
   try {
     const memories = await prisma.memory.findMany({
       where: {
-        userId: req.user.id,
+        userId: req.user.id
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: 'asc'
       },
       include: {
-        recording: true,
-      },
+        recording: {
+          include: {
+            storyPrompt: {
+              include: {
+                question: true
+              }
+            }
+          }
+        }
+      }
     });
 
-    res.json({ memories });
+    return res.json({ memories });
   } catch (error) {
     next(error);
   }
 });
+
 
 export default router;

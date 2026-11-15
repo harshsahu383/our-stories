@@ -74,6 +74,22 @@ export type StoryQuestion = {
   };
 };
 
+export type AnswerType =
+  | 'MAIN'
+  | 'PERMANENT_FOLLOW_UP'
+  | 'AI_FOLLOW_UP';
+
+export type StoryPrompt = {
+  id: string;
+  sessionId: string;
+  questionId: string;
+  permanentFollowUpText: string;
+  aiFollowUpText: string | null;
+  aiFollowUpStatus: 'PENDING' | 'GENERATING' | 'READY' | 'FAILED';
+  sortOrder: number;
+  question: StoryQuestion;
+};
+
 export type Recording = {
   id: string;
   originalAudioUrl: string;
@@ -155,20 +171,53 @@ export async function createStorySession(
  * Upload the original audio only.
  * No transcription or translation happens here.
  */
+
+export type StoryPromptRecording = {
+  id: string;
+  answerType: AnswerType;
+  status: string;
+  englishTranslation: string | null;
+  processingError: string | null;
+  createdAt: string;
+};
+
+export type StoryPromptDetails = StoryPrompt & {
+  recordings: StoryPromptRecording[];
+};
+
+/**
+ * Upload the original audio with its StoryPrompt and answer type.
+ * AI processing happens on the backend after upload.
+ */
 export async function uploadRecording(
   sessionId: string,
   uri: string,
-  filename = 'story.m4a'
+  filename: string,
+  storyPromptId: string,
+  answerType: AnswerType
 ): Promise<Recording> {
   if (!uri) {
     throw new Error('No audio recording was found on this device.');
   }
 
-  const headers: Record<string, string> = {};
-
-  if (authToken) {
-    headers.Authorization = `Bearer ${authToken}`;
+  if (!storyPromptId) {
+    throw new Error('Story prompt ID is missing.');
   }
+
+  if (!['MAIN', 'PERMANENT_FOLLOW_UP', 'AI_FOLLOW_UP'].includes(answerType)) {
+    throw new Error('Invalid answer type.');
+  }
+
+  if (!authToken) {
+    throw new Error('Authentication token is missing. Please restart the app session.');
+  }
+
+  console.log('Uploading recording:', {
+    sessionId,
+    storyPromptId,
+    answerType,
+    filename,
+  });
 
   const result = await FileSystem.uploadAsync(
     `${API_URL}/api/sessions/${sessionId}/recordings`,
@@ -178,8 +227,12 @@ export async function uploadRecording(
       uploadType: FileSystem.FileSystemUploadType.MULTIPART,
       fieldName: 'audio',
       mimeType: 'audio/m4a',
-      headers,
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
       parameters: {
+        storyPromptId,
+        answerType,
         filename,
       },
     }
@@ -192,9 +245,7 @@ export async function uploadRecording(
   } = {};
 
   try {
-    data = result.body
-      ? JSON.parse(result.body)
-      : {};
+    data = result.body ? JSON.parse(result.body) : {};
   } catch {
     throw new Error(
       `The server returned an unreadable response (HTTP ${result.status}).`
@@ -217,6 +268,7 @@ export async function uploadRecording(
 
   return data.recording;
 }
+
 
 /**
  * Explicitly review a saved recording.
@@ -320,3 +372,41 @@ export async function getMemories() {
     memories: Memory[];
   }>('/memories');
 }
+
+export async function createStoryPrompt(
+  sessionId: string,
+  questionId: string
+): Promise<{ storyPrompt: StoryPrompt }> {
+  return request<{ storyPrompt: StoryPrompt }>(
+    `/sessions/${sessionId}/prompts`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ questionId }),
+    }
+  );
+}
+
+
+
+/**
+ * Retrieve all story prompts in a session.
+ */
+export async function getStoryPrompts(sessionId: string) {
+  return request<{
+    prompts: StoryPromptDetails[];
+  }>(`/sessions/${sessionId}/prompts`);
+}
+
+/**
+ * Retrieve one story prompt, including its AI follow-up
+ * and the processing status of its recordings.
+ */
+export async function getStoryPrompt(
+  sessionId: string,
+  promptId: string
+) {
+  return request<{
+    storyPrompt: StoryPromptDetails;
+  }>(`/sessions/${sessionId}/prompts/${promptId}`);
+}
+
