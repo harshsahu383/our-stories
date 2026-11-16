@@ -153,7 +153,7 @@ export default function WelcomeScreen() {
               styles.primaryButton,
               pressed && styles.buttonPressed,
             ]}
-            onPress={() => router.push("/dashboard")}
+            onPress={() => router.push("/signup")}
           >
             <Text style={styles.primaryButtonText}>
               Create your account

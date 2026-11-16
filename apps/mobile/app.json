@@ -42,7 +42,8 @@
           "microphonePermission": "Our Stories needs microphone access to record your life stories.",
           "enableBackgroundRecording": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

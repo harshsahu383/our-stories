@@ -1,20 +1,22 @@
 
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  ScrollView,
+  ActivityIndicator,
+  Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
   StatusBar,
-  Keyboard,
-  Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
+import { login } from "@/services/api";
 import { colors } from "../theme/colors";
 
 export default function LoginScreen() {
@@ -22,29 +24,58 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     Keyboard.dismiss();
 
-    if (!email.trim() || !password) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
       Alert.alert("Missing details", "Please enter your email and password.");
       return;
     }
 
-    if (!/\S+@\S+\.\S+/.test(email.trim())) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       Alert.alert("Invalid email", "Please enter a valid email address.");
       return;
     }
 
-    Alert.alert(
-      "Login integration pending",
-      "We'll connect your login to the backend authentication system next."
-    );
+    try {
+      setLoading(true);
+
+      const user = await login({
+        email: cleanEmail,
+        password,
+      });
+
+      if (user.role !== "PURCHASER") {
+        Alert.alert(
+          "Account unavailable",
+          "This login is for purchaser accounts."
+        );
+        return;
+      }
+
+      router.replace("/dashboard");
+    } catch (error) {
+      Alert.alert(
+        "Login failed",
+        error instanceof Error
+          ? error.message
+          : "Unable to sign in. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor={colors.background}
+      />
 
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
@@ -57,7 +88,6 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
           automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
         >
-          {/* Header */}
           <View style={styles.topBar}>
             <Pressable style={styles.backButton} onPress={() => router.back()}>
               <Text style={styles.backArrow}>←</Text>
@@ -70,7 +100,6 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          {/* Decorative illustration */}
           <View style={styles.illustration}>
             <View style={styles.outerCircle}>
               <View style={styles.innerCircle}>
@@ -81,7 +110,6 @@ export default function LoginScreen() {
             <Text style={styles.star}>✳</Text>
           </View>
 
-          {/* Heading */}
           <View style={styles.headingSection}>
             <View style={styles.eyebrow}>
               <View style={styles.eyebrowLine} />
@@ -99,14 +127,12 @@ export default function LoginScreen() {
             </Text>
           </View>
 
-          {/* Login form */}
           <View style={styles.formCard}>
             <Text style={styles.formTitle}>Sign in to your account</Text>
             <Text style={styles.formSubtitle}>
               Enter your account details below.
             </Text>
 
-            {/* Email */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>EMAIL ADDRESS</Text>
 
@@ -121,12 +147,13 @@ export default function LoginScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  autoComplete="email"
                   returnKeyType="next"
+                  editable={!loading}
                 />
               </View>
             </View>
 
-            {/* Password */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>PASSWORD</Text>
 
@@ -140,13 +167,16 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  autoComplete="current-password"
                   returnKeyType="done"
                   onSubmitEditing={handleLogin}
+                  editable={!loading}
                 />
 
                 <Pressable
                   onPress={() => setShowPassword(!showPassword)}
                   hitSlop={10}
+                  disabled={loading}
                 >
                   <Text style={styles.passwordAction}>
                     {showPassword ? "HIDE" : "SHOW"}
@@ -155,11 +185,11 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            {/* Remember and forgot */}
             <View style={styles.optionsRow}>
               <Pressable
                 style={styles.rememberRow}
                 onPress={() => setRememberMe(!rememberMe)}
+                disabled={loading}
               >
                 <View
                   style={[
@@ -172,23 +202,36 @@ export default function LoginScreen() {
                 <Text style={styles.rememberText}>Remember me</Text>
               </Pressable>
 
-              <Pressable onPress={() => router.push("/forgot-password")}>
+              <Pressable
+                onPress={() => router.push("/forgot-password")}
+                disabled={loading}
+              >
                 <Text style={styles.forgotText}>Forgot password?</Text>
               </Pressable>
             </View>
 
-            {/* Login button */}
             <Pressable
               style={({ pressed }) => [
                 styles.loginButton,
-                pressed && styles.buttonPressed,
+                pressed && !loading && styles.buttonPressed,
+                loading && styles.buttonDisabled,
               ]}
               onPress={handleLogin}
+              disabled={loading}
             >
-              <Text style={styles.loginButtonText}>Sign in</Text>
-              <View style={styles.arrowCircle}>
-                <Text style={styles.arrow}>↗</Text>
-              </View>
+              {loading ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator color="#FFFFFF" />
+                  <Text style={styles.loginButtonText}>Signing in...</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.loginButtonText}>Sign in</Text>
+                  <View style={styles.arrowCircle}>
+                    <Text style={styles.arrow}>↗</Text>
+                  </View>
+                </>
+              )}
             </Pressable>
 
             <View style={styles.secureNote}>
@@ -199,7 +242,6 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          {/* Signup link */}
           <View style={styles.signupRow}>
             <Text style={styles.signupText}>New to Our Stories?</Text>
             <Pressable onPress={() => router.push("/signup")}>
@@ -232,8 +274,6 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 25,
   },
-
-  // Header
   topBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -272,8 +312,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 1,
   },
-
-  // Illustration
   illustration: {
     height: 125,
     justifyContent: "center",
@@ -316,8 +354,6 @@ const styles = StyleSheet.create({
     right: "24%",
     bottom: 17,
   },
-
-  // Heading
   headingSection: {
     marginBottom: 22,
   },
@@ -358,8 +394,6 @@ const styles = StyleSheet.create({
     marginTop: 11,
     maxWidth: 330,
   },
-
-  // Form
   formCard: {
     backgroundColor: "#F9F8F0",
     borderRadius: 23,
@@ -421,13 +455,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     paddingLeft: 8,
   },
-
-  // Options
   optionsRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 0,
     marginBottom: 22,
   },
   rememberRow: {
@@ -463,10 +494,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
   },
-
-  // Login button
   loginButton: {
-    height: 56,
+    minHeight: 56,
     backgroundColor: colors.primary,
     borderRadius: 16,
     paddingHorizontal: 17,
@@ -478,10 +507,18 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     transform: [{ scale: 0.985 }],
   },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
   loginButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
+  },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   arrowCircle: {
     width: 32,
@@ -510,8 +547,6 @@ const styles = StyleSheet.create({
     color: colors.secondaryText,
     fontSize: 10,
   },
-
-  // Footer
   signupRow: {
     flexDirection: "row",
     alignItems: "center",

@@ -12,6 +12,13 @@ enum UserRole {
   RECIPIENT
   ADMIN
 }
+
+enum EmailOtpPurpose {
+  SIGNUP
+  PASSWORD_RESET
+  GIFT_ACTIVATION
+}
+
 enum FollowUpStatus {
   PENDING
   GENERATING
@@ -23,6 +30,15 @@ enum SessionStatus {
   ACTIVE
   COMPLETED
   CANCELLED
+}
+
+enum GiftStatus {
+  PENDING_PAYMENT
+  PAYMENT_FAILED
+  PAID
+  ACTIVATED
+  CANCELLED
+  REFUNDED
 }
 
 enum RecordingStatus {
@@ -46,14 +62,18 @@ enum AnswerType {
 }
 
 model User {
-  id                String   @id @default(cuid())
+  id                String     @id @default(cuid())
   name              String
-  email             String   @unique
+  email             String     @unique
+  phone             String?
   passwordHash      String?
-  role              UserRole @default(RECIPIENT)
-  preferredLanguage String   @default("en")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  role              UserRole   @default(RECIPIENT)
+  preferredLanguage String     @default("en")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  emailVerifiedAt   DateTime?
+  emailOtps         EmailOtp[]
+  tokenVersion      Int        @default(0)
 
   sessions      StorySession[]
   memories      Memory[]
@@ -62,15 +82,30 @@ model User {
 }
 
 model Gift {
-  id          String    @id @default(cuid())
-  code        String    @unique
+  id   String @id @default(cuid())
+  code String @unique
+
   purchaserId String
   recipientId String?
-  activatedAt DateTime?
-  createdAt   DateTime  @default(now())
 
-  purchaser User  @relation("GiftPurchaser", fields: [purchaserId], references: [id])
-  recipient User? @relation("GiftRecipient", fields: [recipientId], references: [id])
+  recipientName          String?
+  recipientEmail         String?
+  recipientEmailReserved String? @unique
+  recipientPhone         String?
+  personalNote           String?
+
+  status      GiftStatus @default(PENDING_PAYMENT)
+  paidAt      DateTime?
+  activatedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  purchaser     User           @relation("GiftPurchaser", fields: [purchaserId], references: [id])
+  recipient     User?          @relation("GiftRecipient", fields: [recipientId], references: [id])
+  storySessions StorySession[]
+
+  @@index([purchaserId, createdAt])
+  @@index([recipientEmail])
 }
 
 model Category {
@@ -99,6 +134,7 @@ model Question {
 model StorySession {
   id          String        @id @default(cuid())
   userId      String
+  giftId      String?
   questionId  String?
   language    String
   status      SessionStatus @default(ACTIVE)
@@ -106,21 +142,24 @@ model StorySession {
   completedAt DateTime?
 
   user       User          @relation(fields: [userId], references: [id])
+  gift       Gift?         @relation(fields: [giftId], references: [id])
   question   Question?     @relation(fields: [questionId], references: [id])
   recordings Recording[]
   prompts    StoryPrompt[]
+
+  @@index([giftId])
 }
 
 model StoryPrompt {
-  id                    String   @id @default(cuid())
+  id                    String         @id @default(cuid())
   sessionId             String
   questionId            String
   permanentFollowUpText String
   aiFollowUpText        String?
-  sortOrder             Int      @default(0)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  aiFollowUpStatus FollowUpStatus @default(PENDING)
+  sortOrder             Int            @default(0)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  aiFollowUpStatus      FollowUpStatus @default(PENDING)
 
   session    StorySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   question   Question     @relation(fields: [questionId], references: [id])
@@ -173,4 +212,20 @@ model Memory {
   recording Recording @relation(fields: [recordingId], references: [id])
 
   @@index([userId, createdAt])
+}
+
+model EmailOtp {
+  id         String          @id @default(cuid())
+  userId     String
+  purpose    EmailOtpPurpose
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int             @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime        @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, createdAt])
+  @@index([expiresAt])
 }

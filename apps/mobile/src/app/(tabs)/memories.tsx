@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useFocusEffect } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
     getRecordings,
@@ -130,7 +129,6 @@ export default function MemoriesScreen() {
 
             const group = grouped.get(groupId)!;
 
-            // Keep the latest prompt text available on the group.
             if (prompt?.question?.text) {
                 group.question = prompt.question.text;
             }
@@ -171,10 +169,7 @@ export default function MemoriesScreen() {
 
     const handlePlayback = async (recording: MemoryRecording) => {
         try {
-            if (
-                playingId === recording.id &&
-                playerStatus.playing
-            ) {
+            if (playingId === recording.id && playerStatus.playing) {
                 player.pause();
                 setPlayingId(null);
                 return;
@@ -249,7 +244,10 @@ export default function MemoriesScreen() {
         }
     };
 
-    const renderAnswer = (recording: MemoryRecording, group: RecordingGroup) => {
+    const renderAnswer = (
+        recording: MemoryRecording,
+        group: RecordingGroup
+    ) => {
         const answerType = recording.answerType || 'MAIN';
 
         const answerQuestion =
@@ -283,8 +281,7 @@ export default function MemoriesScreen() {
                         </Text>
 
                         <Text style={styles.answerQuestion}>
-                            {answerQuestion ||
-                                'Question text unavailable'}
+                            {answerQuestion || 'Question text unavailable'}
                         </Text>
                     </View>
                 </View>
@@ -336,40 +333,39 @@ export default function MemoriesScreen() {
         );
     };
 
-    const renderGroup = ({ item }: { item: RecordingGroup }) => {
-        return (
-            <View style={styles.groupCard}>
-                <View style={styles.groupHeader}>
-                    <View style={styles.groupIcon}>
-                        <Text style={styles.groupIconText}>♫</Text>
-                    </View>
-
-                    <View style={styles.groupInfo}>
-                        <Text style={styles.groupEyebrow}>
-                            YOUR STORY
-                        </Text>
-                        <Text style={styles.groupQuestion}>
-                            {item.question}
-                        </Text>
-                        <Text style={styles.groupCount}>
-                            {item.recordings.length} of 3 answers recorded
-                        </Text>
-                    </View>
+    const renderGroup = ({ item }: { item: RecordingGroup }) => (
+        <View style={styles.groupCard}>
+            <View style={styles.groupHeader}>
+                <View style={styles.groupIcon}>
+                    <Text style={styles.groupIconText}>♫</Text>
                 </View>
 
-                <View style={styles.answers}>
-                    {item.recordings.map(recording =>
-                        renderAnswer(recording, item)
-                    )}
+                <View style={styles.groupInfo}>
+                    <Text style={styles.groupEyebrow}>YOUR STORY</Text>
+
+                    <Text style={styles.groupQuestion}>
+                        {item.question}
+                    </Text>
+
+                    <Text style={styles.groupCount}>
+                        {item.recordings.length} of 3 answers recorded
+                    </Text>
                 </View>
             </View>
-        );
-    };
+
+            <View style={styles.answers}>
+                {item.recordings.map(recording =>
+                    renderAnswer(recording, item)
+                )}
+            </View>
+        </View>
+    );
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.container}>
             <View style={styles.header}>
                 <Text style={styles.heading}>My Memories</Text>
+
                 <Text style={styles.subtitle}>
                     Every question, every answer, preserved in your voice.
                 </Text>
@@ -377,7 +373,11 @@ export default function MemoriesScreen() {
 
             {loading ? (
                 <View style={styles.center}>
-                    <ActivityIndicator size="large" color={colors.accent} />
+                    <ActivityIndicator
+                        size="large"
+                        color={colors.accent}
+                    />
+
                     <Text style={styles.loadingText}>
                         Loading your memories...
                     </Text>
@@ -397,9 +397,11 @@ export default function MemoriesScreen() {
                     ListEmptyComponent={
                         <View style={styles.empty}>
                             <Text style={styles.emptyIcon}>♫</Text>
+
                             <Text style={styles.emptyTitle}>
                                 No memories yet
                             </Text>
+
                             <Text style={styles.emptyText}>
                                 Your recorded answers will appear here,
                                 organised by question.
@@ -408,7 +410,7 @@ export default function MemoriesScreen() {
                     }
                 />
             )}
-        </SafeAreaView>
+        </View>
     );
 }
 

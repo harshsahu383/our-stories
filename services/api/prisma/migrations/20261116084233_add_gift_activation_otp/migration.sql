@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "EmailOtpPurpose" ADD VALUE 'GIFT_ACTIVATION';

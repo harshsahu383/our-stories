@@ -1,41 +1,65 @@
 
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  ScrollView,
+  ActivityIndicator,
+  Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
   StatusBar,
-  Keyboard,
-  Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
+import { signup } from "@/services/api";
 import { colors } from "../theme/colors";
 
 export default function SignupScreen() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSignup = () => {
+  const handleSignup = async () => {
     Keyboard.dismiss();
 
-    if (!name.trim() || !email.trim() || !password || !confirmPassword) {
+    const cleanName = name.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPhone = phone.trim();
+
+    if (
+      !cleanName ||
+      !cleanEmail ||
+      !cleanPhone ||
+      !password ||
+      !confirmPassword
+    ) {
       Alert.alert("Missing details", "Please fill in all the fields.");
       return;
     }
 
-    if (!/\S+@\S+\.\S+/.test(email.trim())) {
+    if (cleanName.length < 2) {
+      Alert.alert("Invalid name", "Please enter your full name.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       Alert.alert("Invalid email", "Please enter a valid email address.");
+      return;
+    }
+
+    if (!/^[+]?[\d\s()-]{7,20}$/.test(cleanPhone)) {
+      Alert.alert("Invalid phone number", "Please enter a valid phone number.");
       return;
     }
 
@@ -60,10 +84,33 @@ export default function SignupScreen() {
       return;
     }
 
-    router.push({
-      pathname: "/verify-email",
-      params: { email: email.trim().toLowerCase() },
-    });
+
+    try {
+      setLoading(true);
+
+      await signup({
+        name: cleanName,
+        email: cleanEmail,
+        phone: cleanPhone,
+        password,
+        language: "en",
+      });
+
+      router.replace({
+        pathname: "/verify-email",
+        params: { email: cleanEmail },
+      });
+    } catch (error) {
+      Alert.alert(
+        "Signup failed",
+        error instanceof Error
+          ? error.message
+          : "Unable to create your account. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+
   };
 
   return (
@@ -84,7 +131,6 @@ export default function SignupScreen() {
           showsVerticalScrollIndicator={false}
           automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
         >
-          {/* Top navigation */}
           <View style={styles.topBar}>
             <Pressable
               style={styles.backButton}
@@ -102,7 +148,6 @@ export default function SignupScreen() {
             </View>
           </View>
 
-          {/* Heading */}
           <View style={styles.headingSection}>
             <View style={styles.eyebrow}>
               <View style={styles.eyebrowLine} />
@@ -120,14 +165,12 @@ export default function SignupScreen() {
             </Text>
           </View>
 
-          {/* Form card */}
           <View style={styles.formCard}>
             <View style={styles.formHeader}>
               <Text style={styles.formTitle}>Your details</Text>
               <Text style={styles.requiredText}>* Required</Text>
             </View>
 
-            {/* Name */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>FULL NAME</Text>
               <View style={styles.inputWrapper}>
@@ -141,11 +184,11 @@ export default function SignupScreen() {
                   autoCapitalize="words"
                   autoCorrect={false}
                   returnKeyType="next"
+                  editable={!loading}
                 />
               </View>
             </View>
 
-            {/* Email */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>EMAIL ADDRESS</Text>
               <View style={styles.inputWrapper}>
@@ -159,12 +202,32 @@ export default function SignupScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  autoComplete="email"
                   returnKeyType="next"
+                  editable={!loading}
                 />
               </View>
             </View>
 
-            {/* Password */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>PHONE NUMBER</Text>
+              <View style={styles.inputWrapper}>
+                <Text style={styles.inputIcon}>☎</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your phone number"
+                  placeholderTextColor="#A3AEA1"
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  maxLength={20}
+                  returnKeyType="next"
+                  editable={!loading}
+                />
+              </View>
+            </View>
+
             <View style={styles.inputGroup}>
               <Text style={styles.label}>PASSWORD</Text>
               <View style={styles.inputWrapper}>
@@ -177,11 +240,14 @@ export default function SignupScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  autoComplete="new-password"
                   returnKeyType="next"
+                  editable={!loading}
                 />
                 <Pressable
                   onPress={() => setShowPassword(!showPassword)}
                   hitSlop={10}
+                  disabled={loading}
                 >
                   <Text style={styles.passwordAction}>
                     {showPassword ? "HIDE" : "SHOW"}
@@ -193,7 +259,6 @@ export default function SignupScreen() {
               </Text>
             </View>
 
-            {/* Confirm password */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>CONFIRM PASSWORD</Text>
               <View style={styles.inputWrapper}>
@@ -208,12 +273,14 @@ export default function SignupScreen() {
                   autoCapitalize="none"
                   returnKeyType="done"
                   onSubmitEditing={handleSignup}
+                  editable={!loading}
                 />
                 <Pressable
                   onPress={() =>
                     setShowConfirmPassword(!showConfirmPassword)
                   }
                   hitSlop={10}
+                  disabled={loading}
                 >
                   <Text style={styles.passwordAction}>
                     {showConfirmPassword ? "HIDE" : "SHOW"}
@@ -222,10 +289,10 @@ export default function SignupScreen() {
               </View>
             </View>
 
-            {/* Terms */}
             <Pressable
               style={styles.termsRow}
               onPress={() => setAcceptedTerms(!acceptedTerms)}
+              disabled={loading}
             >
               <View
                 style={[
@@ -233,9 +300,7 @@ export default function SignupScreen() {
                   acceptedTerms && styles.checkboxActive,
                 ]}
               >
-                {acceptedTerms && (
-                  <Text style={styles.checkmark}>✓</Text>
-                )}
+                {acceptedTerms && <Text style={styles.checkmark}>✓</Text>}
               </View>
 
               <Text style={styles.termsText}>
@@ -246,18 +311,28 @@ export default function SignupScreen() {
               </Text>
             </Pressable>
 
-            {/* Submit */}
             <Pressable
               style={({ pressed }) => [
                 styles.submitButton,
-                pressed && styles.buttonPressed,
+                pressed && !loading && styles.buttonPressed,
+                loading && styles.buttonDisabled,
               ]}
               onPress={handleSignup}
+              disabled={loading}
             >
-              <Text style={styles.submitText}>Create my account</Text>
-              <View style={styles.submitArrowCircle}>
-                <Text style={styles.submitArrow}>↗</Text>
-              </View>
+              {loading ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator color="#FFFFFF" />
+                  <Text style={styles.submitText}>Creating account...</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.submitText}>Create my account</Text>
+                  <View style={styles.submitArrowCircle}>
+                    <Text style={styles.submitArrow}>↗</Text>
+                  </View>
+                </>
+              )}
             </Pressable>
 
             <View style={styles.secureNote}>
@@ -268,7 +343,6 @@ export default function SignupScreen() {
             </View>
           </View>
 
-          {/* Login link */}
           <View style={styles.loginRow}>
             <Text style={styles.loginText}>Already have an account?</Text>
             <Pressable onPress={() => router.push("/login")}>
@@ -276,7 +350,6 @@ export default function SignupScreen() {
             </Pressable>
           </View>
 
-          {/* Footer */}
           <View style={styles.footer}>
             <Text style={styles.footerText}>
               A lifetime of memories. A legacy of love.
@@ -302,8 +375,6 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 25,
   },
-
-  // Navigation
   topBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -346,8 +417,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 1,
   },
-
-  // Heading
   headingSection: {
     marginBottom: 23,
   },
@@ -388,8 +457,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
     maxWidth: 330,
   },
-
-  // Form card
   formCard: {
     backgroundColor: "#F9F8F0",
     borderRadius: 24,
@@ -460,8 +527,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 7,
   },
-
-  // Terms
   termsRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -498,10 +563,8 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: "700",
   },
-
-  // Button
   submitButton: {
-    height: 56,
+    minHeight: 56,
     backgroundColor: colors.primary,
     borderRadius: 16,
     paddingHorizontal: 17,
@@ -513,10 +576,18 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     transform: [{ scale: 0.985 }],
   },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
   submitText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
+  },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   submitArrowCircle: {
     width: 32,
@@ -545,8 +616,6 @@ const styles = StyleSheet.create({
     color: colors.secondaryText,
     fontSize: 10,
   },
-
-  // Login and footer
   loginRow: {
     flexDirection: "row",
     alignItems: "center",
